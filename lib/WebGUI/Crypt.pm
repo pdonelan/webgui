@@ -36,6 +36,7 @@ These methods are available from this package:
 # InsideOut object properties
 readonly session => my %session;    # WebGUI::Session object
 private providers => my %providers;
+private providerIds => my %providerIds;
 
 #-------------------------------------------------------------------
 
@@ -93,6 +94,9 @@ sub _getProvider{
  
     my $providerId = exists $args->{providerId} ? $args->{providerId} : $self->lookupProviderId($args);
     
+    #return object if already created 
+    return $providers{id $self}->{$providerId} if(exists $providers{id $self}->{$providerId});
+    
     my $module;
     my $providerData;
     
@@ -123,8 +127,6 @@ sub _getProvider{
         );
     }
     
-    #return object if already created 
-    return $providers{id $self}->{$providerId} if(exists $providers{id $self}->{$providerId});
 
     # Instantiate the Provider..
     my $provider;
@@ -155,12 +157,16 @@ Takes a table and field and returns the correct providerId
 sub lookupProviderId{
     my ($self, $args) = @_;
 
+
     if ( ! $args->{table} || ! $args->{field}) {
         WebGUI::Error::InvalidParam->throw(
             param => $args,
             error => 'lookupProviderId needs a table and field defined.'
         );
     }
+
+    return $providerIds{id $self}->{$args->{table}}->{$args->{field}} if(exists $providerIds{id $self}->{$args->{table}}->{$args->{field}});
+
     my $providerId = $self->session->db->quickScalar(
                 "select providerId from cryptFieldProviders where `table` = ? and `field` = ?",
                 [ $args->{table}, $args->{field} ] );
@@ -171,6 +177,7 @@ sub lookupProviderId{
        #     error => "lookupProviderId could not find a providerID for table:$$args{table} and field:$$args{field} ."
        # );
 #    }
+    $providerIds{id $self}->{$args->{table}}->{$args->{field}} = $providerId;
     return $providerId;
 }
 
