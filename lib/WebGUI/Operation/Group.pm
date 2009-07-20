@@ -37,6 +37,7 @@ sub _submenu {
 	if (canView($session)) {
         	unless ($session->form->process("op") eq "listGroups" 
 			|| $session->form->process("gid") eq "new" 
+			|| $session->form->process("op") eq "visualizeGroups" 
 			|| $session->form->process("op") eq "deleteGroupConfirm") {
         	        $ac->addSubmenuItem($session->url->page("op=editGroup;gid=".$session->form->process("gid")), $i18n->get(753));
                 	$ac->addSubmenuItem($session->url->page("op=manageUsersInGroup;gid=".$session->form->process("gid")), $i18n->get(754));
@@ -44,6 +45,7 @@ sub _submenu {
         	        $ac->addSubmenuItem($session->url->page("op=emailGroup;gid=".$session->form->process("gid")), $i18n->get(808));
                 	$ac->addConfirmedSubmenuItem($session->url->page("op=deleteGroup;gid=".$session->form->process("gid")), $i18n->get(806), $i18n->get(86));
 	        }
+	        $ac->addSubmenuItem($session->url->page("op=visualizeGroups"), $i18n->get('visualize groups'));
         	$ac->addSubmenuItem($session->url->page("op=listGroups"), $i18n->get(756));
 	}
     return $ac->render($workarea, $title);
@@ -1086,6 +1088,98 @@ sub www_manageUsersInGroup {
 	$f->submit;
 	$output .= $f->print;
         return _submenu($session,$output,'88');
+}
+
+
+
+#-------------------------------------------------------------------
+
+=head2 www_visualizeGroups
+
+Use GraphViz to generate a visualization of Groups
+
+=head3 $session
+
+A WebGUI::Session object
+
+=cut
+
+sub www_visualizeGroups {
+	my $session = shift;
+    return $session->privilege->adminOnly() unless canView($session);
+    my $i18n = WebGUI::International->new($session);
+    
+    eval { require GraphViz };
+    if ($@) {
+        return _submenu($session,$i18n->get('group visualization graphviz'),'group visualization');
+    }
+    
+    # Configurable properties
+    my $shape = $session->form->param('shape') || 'box';
+    my $style = $session->form->param('style') || 'filled';
+    my $format = $session->form->param('format') || 'png';
+    my $layout = $session->form->param('layout') || 'neato';
+    my $overlap = $session->form->param('overlap') || 'false';
+    my $random_start = $session->form->param('random_start') || 1;
+    my $fontsize = $session->form->param('fontsize') || 10;
+    my $bg_color = $session->form->param('bg_color') || 'White';
+    my $group_color = $session->form->param('group_color') || 'CornflowerBlue';
+    my $group_fill_color = $session->form->param('group_fill_color') || 'Beige';
+    my $grouping_color = $session->form->param('grouping_color') || 'Blue';
+    my $show_admin = $session->form->param('show_admin') || 0;
+    
+    my $filename = "group_visualisation.$format";
+    my $storage = WebGUI::Storage->createTemp($session);
+    $storage->addFileFromScalar($filename);
+    my $path = $storage->getPath($filename);
+
+    my $g = GraphViz->new( 
+        bgcolor => $bg_color, 
+        fontsize => $fontsize, 
+        layout => $layout,
+        overlap => $overlap,
+        random_start => $random_start,
+    );
+    
+    my %groups;
+    for my $groupId ($session->db->buildArray('select groupId from groups where isEditable = 1')) {
+        $groups{$groupId} ||= WebGUI::Group->new($session, $groupId);
+        my $group = $groups{$groupId};
+        my @users = @{$group->getUsers || []};
+        my @groupingIds = @{$group->getGroupsFor || []};
+        my $label = $group->name . ' (' . @users . ' users)';
+        
+        # Skip admins (for clarity)
+        next if $groupId eq '3' && !$show_admin;
+        
+        # Add group node
+        $g->add_node(
+            $groupId,
+            label     => $label,
+            fontsize  => $fontsize,
+            shape     => $shape,
+            style     => $style,
+            color     => $group_color,
+            fillcolor => $group_fill_color,
+        );
+        
+        # Add grouping edges
+        for my $groupingId (@groupingIds) {
+            $g->add_edge(
+                $groupId => $groupingId,
+                labelfontsize  => $fontsize,
+                labelfontcolor => $grouping_color,
+                color          => $grouping_color,
+            );
+        }
+    }
+    
+    # Render the image to a file
+    my $method = "as_$format";
+    $g->$method($path);
+    
+    my $url = $storage->getUrl($filename);
+	return _submenu($session, "<img src=$url>" ,'group visualization');
 }
 
 1;

@@ -129,6 +129,7 @@ sub getOperations {
 		'listGroups' => 'Group',
 		'manageGroupsInGroup' => 'Group',
 		'manageUsersInGroup' => 'Group',
+		'visualizeGroups' => 'Group',
 
 		'viewHelp' => 'Help',
 		'viewHelpIndex' => 'Help',

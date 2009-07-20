@@ -2817,6 +2817,21 @@ or are under your current version tag.</p>
 		message => q|Users In Group|,
 		lastUpdated => 1031514049
 	},
+	
+	'group visualization' => {
+		message => q|Group Visualization|,
+		lastUpdated => 0
+	},
+	
+	'visualize groups' => {
+		message => q|Visualize Groups|,
+		lastUpdated => 0
+	},
+	
+	'group visualization graphviz' => {
+		message => q|Group Visualization requires the GraphViz CPAN module|,
+		lastUpdated => 0
+	},
 
 	'1009' => {
 		message => q|HTML|,
