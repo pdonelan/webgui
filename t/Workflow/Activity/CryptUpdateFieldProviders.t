@@ -11,71 +11,46 @@
 use FindBin;
 use strict;
 use lib "$FindBin::Bin/../../lib";
-
-use WebGUI::Test;
-use WebGUI::Session;
-use WebGUI::Utility;
-use WebGUI::Workflow::Activity::CryptUpdateFieldProviders;
-
 use Test::More;
 
-plan tests => 2; # increment this value for each test you create
+use WebGUI::Test;    # Must use this before any other WebGUI modules
+use WebGUI::CryptTest;
 
-#Create a session
+#----------------------------------------------------------------------------
+# Init
 my $session = WebGUI::Test->session;
 
-
-############
+#----------------------------------------------------------------------------
 # Create test data
-############
+my $ct = WebGUI::CryptTest->new( $session, 'CryptUpdateFieldProviders.t' );
 
-$session->db->write("drop table if exists `encryptTest`");
-$session->db->write("CREATE TABLE `encryptTest` ( `id` char(22)  NOT NULL, `testField` LONGTEXT  NOT NULL)");
-$session->db->write("insert into encryptTest values ('1','ABC123')");
+#----------------------------------------------------------------------------
+# Tests
+WebGUI::Error->Trace(1);    # Turn on tracing of uncaught Exception::Class exceptions
+plan tests => 4;
 
-############
-# Set up mock config entry (dont forget to reset it
-############
+#----------------------------------------------------------------------------
+# put your tests here
+use_ok('WebGUI::Workflow::Activity::CryptUpdateFieldProviders');
 
-#store config for automagic reset when the test ends
-WebGUI::Test->originalConfig("crypt");
-my $crypt = $session->config->get('crypt');
-$crypt->{'cryptTestDeleteMe'} = {provider=>'WebGUI::Crypt::Simple', name=>'testProvider', key=>'123ABC'};
-$session->config->set('crypt',$crypt);
+# encryptTest table contains our known plaintext string, thanks to WebGUI::CryptTest
+is($session->db->quickScalar("select testField from encryptTest where id = 1"),'CryptUpdateFieldProviders.t','Start with known plaintext');
 
 ############
-# Set the provider to simple for the test table which also starts the workflow
+# Set the provider to simple for the test table, and trigger the workflow
 ############
+$session->crypt->setProvider({table=>'encryptTest', field=>'testField', key=>'id','providerId'=>'SimpleTest'});
+WebGUI::Crypt->startCryptWorkflow($session);
 
-$session->crypt->setProvider({table=>'encryptTest', field=>'testField', key=>'id','providerId'=>'cryptTestDeleteMe'});
-
-############
 # Make sure the test string is no longer plain text
-############
-
-my $ciphertext = $session->db->quickScalar("select testField from encryptTest where id = '1'");
-{
-    isnt('ABC123',$ciphertext,'Text should no longer be plain text');
-}
+like($session->db->quickScalar("select testField from encryptTest where id = 1"),qr/^CRYPT:SimpleTest:/, 'Text should now be encrypted');
 
 ############
-# Set the provider to None for the test table which also starts the workflow
+# Change provider to None and re-trigger the workflow
 ############
 
 $session->crypt->setProvider({table=>'encryptTest', field=>'testField', key=>'id','providerId'=>'None'});
+WebGUI::Crypt->startCryptWorkflow($session);
 
-############
-# Make sure the test string is now plain text
-############
-
-my $ciphertext = $session->db->quickScalar("select testField from encryptTest where id = '1'");
-{
-    is('ABC123',$ciphertext,'Text should now be plain text');
-}
-
-############
-# Clean up test
-############
-
-$session->db->write("drop table if exists `encryptTest`");
-$session->db->write("delete from cryptFieldProviders where `table` = 'encryptTest' and `field` = 'testField'");
+# Make sure the test string is now back to plain text
+is($session->db->quickScalar("select testField from encryptTest where id = 1"),'CryptUpdateFieldProviders.t','Start with known plaintext');

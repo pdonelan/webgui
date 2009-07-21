@@ -1413,11 +1413,11 @@ section/answer.|,
         lastUpdated => 0,
     },
     'surveyJSONEncryptionType help' => {
-        message => q|Select the encryption provider to encrypt responses. Use provider None to leave responses as plain text.|,
+        message => q|Select the encryption provider to encrypt responses. Choose "None" to disable encryption. Please notes that this setting applies to all Survey instances globally.|,
         lastUpdated => 0,
     },
     'surveyJSONEncryptionType' => {
-        message => q|Encrypt responses:|,
+        message => q|Encrypt responses|,
         lastUpdated => 0,
     },
     

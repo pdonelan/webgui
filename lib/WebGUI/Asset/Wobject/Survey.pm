@@ -229,8 +229,6 @@ sub definition {
 
 #-------------------------------------------------------------------
 
-#-------------------------------------------------------------------
-
 =head2 getEditForm ( )
 
 Add the javascript needed for the edit form
@@ -238,18 +236,15 @@ Add the javascript needed for the edit form
 =cut
 
 sub getEditForm {
-    my ( $self ) = @_;
-    my $tabform = $self->SUPER::getEditForm();
-    my $cryptChoices;
+    my ($self) = @_;
     my $i18n = WebGUI::International->new( $self->session, 'Asset_Survey' );
-    map( $cryptChoices->{$_} = $self->session->config->get('crypt')->{$_}->{'name'}, keys %{$self->session->config->get('crypt')} );
-    my $currentProvider = $self->session->crypt->lookupProviderId({table=>'Survey_response', field => 'responseJSON'});
-    $tabform->getTab("security")->selectBox(
-        -name=>"surveyJSONEncryptionType",
-        -label=>$i18n->get('surveyJSONEncryptionType'),
-        -hoverHelp=>$i18n->get('surveyJSONEncryptionType help'),
-        -defaultValue => $currentProvider,
-        -options      => $cryptChoices
+    my $tabform = $self->SUPER::getEditForm();
+    $tabform->getTab("security")->cryptProvider(
+        name      => "surveyJSONEncryptionType",
+        label     => $i18n->get('surveyJSONEncryptionType'),
+        hoverHelp => $i18n->get('surveyJSONEncryptionType help'),
+        table     => 'Survey_response',
+        field     => 'responseJSON',
     );
     return $tabform;
 }
@@ -262,19 +257,26 @@ For catching updates to surveyJSONEncryptionType.
 
 =cut
 
-sub processPropertiesFromFormPost{
+sub processPropertiesFromFormPost {
     my ($self) = @_;
     $self->SUPER::processPropertiesFromFormPost;    # Updates the event
     my $providerId = $self->session->form->get('surveyJSONEncryptionType');
-    if(!$self->session->config->get('crypt')->{$providerId}){
+    if ( !$self->session->config->get('crypt')->{$providerId} ) {
         WebGUI::Error::InvalidParam->throw(
             param => $providerId,
-            error    => 'Bad providerId passed in for parameters'
+            error => 'Bad providerId passed in for parameters'
         );
     }
-    $self->session->crypt->setProvider({table=>'Survey_response', field=>'responseJSON', key=>'Survey_responseId', providerId=>$providerId});
-    
+    $self->session->crypt->setProvider(
+        {   table      => 'Survey_response',        # the table to be encrypted
+            field      => 'responseJSON',           # the field to be encrypted
+            key        => 'Survey_responseId',      # the primary key
+            providerId => $providerId
+        }
+    );
+
 }
+
 #-------------------------------------------------------------------
 
 =head2 surveyJSON_update ( )
@@ -1521,9 +1523,18 @@ Turns the response object into JSON and saves it to the DB.
 
 sub persistResponseJSON {
     my $self = shift;
-    my $currentProvider = $self->session->crypt->lookupProviderId({table=>'Survey_response', field => 'responseJSON'});
-    my $data = $self->session->crypt->encrypt_hex($self->responseJSON->freeze(),{providerId => $currentProvider});
-    $self->session->db->write( 'update Survey_response set responseJSON = ? where Survey_responseId = ?', [ $data, $self->responseId ] );
+
+    # Serialize/freeze the data
+    my $frozen = $self->responseJSON->freeze();
+
+    # Pass the serialized data through WebGUI::Crypt
+    $frozen
+        = $self->session->crypt->encrypt_hex( $frozen, { table => 'Survey_response', field => 'responseJSON' } );
+
+    # Persist it to the db
+    $self->session->db->write( 'update Survey_response set responseJSON = ? where Survey_responseId = ?',
+        [ $frozen, $self->responseId ] );
+
     return;
 }
 

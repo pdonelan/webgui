@@ -846,7 +846,7 @@ sub newByEmail {
 	my $email = shift;
     $email = $session->crypt->encrypt_hex($email,{table=>'userProfileData', field=>'email'});
     my ($id) = $session->dbSlave->quickArray("select userId from userProfileData where email=?",[$email]);
-	my $user = $class->new($session, $id);
+    my $user = $class->new($session, $id);
 	return undef if ($user->isVisitor); # visitor is never valid for this method
 	return undef unless $user->username;
 	return $user;
@@ -911,7 +911,7 @@ sub profileField {
     if (defined $value) {
         $self->uncache;
         $self->{_profile}{$fieldName} = $value;
-        $value = $self->session->crypt->encrypt_hex($value,{table=>'userProfileData', field=>$db->dbh->quote_identifier($fieldName)});
+        $value = $self->session->crypt->encrypt_hex($value,{table=>'userProfileData', field=>$fieldName});
         $db->write(
             "UPDATE userProfileData SET ".$db->dbh->quote_identifier($fieldName)."=? WHERE userId=?",
             [$value, $self->{_userId}]

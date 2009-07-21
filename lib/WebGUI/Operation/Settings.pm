@@ -44,9 +44,6 @@ sub definition {
 	my $i18n        = shift;
 	my @fields      = ();
     my $setting     = $session->setting;
-    my $cryptChoices;
-    map( $cryptChoices->{$_} = $session->config->get('crypt')->{$_}->{'name'}, keys %{$session->config->get('crypt')} );
-    my $currentProvider = $session->crypt->lookupProviderId({table=>'inbox', field => 'message'});
 	# company info
 	push(@fields, {
 		tab=>"company",
@@ -292,12 +289,12 @@ sub definition {
 		});
 	push(@fields, {
 		tab=>"messaging",
-		fieldType=>"selectBox",
+		fieldType=>"cryptProvider",
 		name=>"inboxMessageEncryption",
 		label=>$i18n->get('inboxMessageEncryption'),
 		hoverHelp=>$i18n->get('inboxMessageEncryption help'),
-        defaultValue => $currentProvider,
-        options      => $cryptChoices
+		table=>'inbox',
+		field=>'message',
         });
 	# misc
 	push(@fields, {

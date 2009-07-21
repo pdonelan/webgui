@@ -12,20 +12,15 @@ use Data::Dumper;
 use WebGUI::Test;    # Must use this before any other WebGUI modules
 use WebGUI::Session;
 use WebGUI::CryptTest;
-use WebGUI::Crypt::Simple;
-
+WebGUI::Error->Trace(1);    # Turn on tracing of uncaught Exception::Class exceptions
 
 #----------------------------------------------------------------------------
 # Init
 my $session = WebGUI::Test->session;
 
 #----------------------------------------------------------------------------
-#Make sure everything is on and working for crypt
-WebGUI::CryptTest->new($session,'nada');
-
-#----------------------------------------------------------------------------
 # Tests
-my $tests = 20;
+my $tests = 22;
 plan tests => $tests + 1;
 
 #----------------------------------------------------------------------------
@@ -76,44 +71,38 @@ ok($s->canTakeSurvey, '..which means user can take survey');
 # Complete Survey
 $s->surveyEnd();
 
-
-# test use of Crypt
-my $crypt = WebGUI::Crypt->new($session);
-
-#Put json in db
-$s->persistSurveyJSON();
-
-#Store current survey crypt setting
-my $temp = $crypt->lookupProviderId({table=>'Survey_response', field=>'reponseJSON'});
-my $defaultProviderId = defined $temp ? $temp : 'None';
-
-$crypt->setProvider({ table =>'Survey_response', field =>'responseJSON', key =>'Survey_responseId', providerId => 'None'});
-
-#get copy of response json
-my $json = $s->responseJSON->freeze();
-
-my $providerId;
-my $config;
-
-for my $pkey (keys %{$session->config->get('crypt')}){
-    if($session->config->get('crypt')->{$pkey}->{provider} eq 'WebGUI::Crypt::Simple'){
-        $config = $session->config->get('crypt')->{$pkey};
-        $providerId = $pkey;
-        last;
-    }
-}
-
-$crypt->setProvider({table=>'Survey_response', field=>'responseJSON', key=>'Survey_responseId', providerId => $providerId});
-
-my $simple = WebGUI::Crypt::Simple->new($session,$config);
-
-my $encryptedJSON = $session->db->quickScalar("select responseJSON from Survey_response where Survey_responseId = '$responseId'");
+#########################################################
+# crypt #
+#########################################################
 {
-    $encryptedJSON =~ /CRYPT:(.*?):(.*)/; 
-    is($json,$simple->decrypt_hex($2), 'Old plaintext json should match new encrypted json');
+    # Create crypt test object
+    my $ct = WebGUI::CryptTest->new( $session, 'Survey.t' );
+
+    #Put json in db
+    $s->persistSurveyJSON();
+
+    #get copy of response json
+    my $rJSON = $s->responseJSON->freeze();
+    
+    # Response should start off unencrypted
+    is($session->db->quickScalar("select responseJSON from Survey_response where Survey_responseId = ?", [$responseId]), $rJSON, 'Response starts off unencrypted');
+    
+    # Turn on Simple provider and run Update
+    $session->crypt->setProvider({table=>'Survey_response', field=>'responseJSON', key=>'Survey_responseId', providerId => 'SimpleTest'});
+    $session->crypt->startCryptWorkflow($session);
+
+    # Response should now be encrypted
+    like($session->db->quickScalar("select responseJSON from Survey_response where Survey_responseId = ?", [$responseId]), qr/^CRYPT:SimpleTest:/, 'Response now encrypted');
+
+    # Turn off Crypt and re-run workflow
+    $session->crypt->setProvider({ table =>'Survey_response', field =>'responseJSON', key =>'Survey_responseId', providerId => 'None'});
+    $session->crypt->startCryptWorkflow($session);
+
+    # Response should be unencrypted again
+    is($session->db->quickScalar("select responseJSON from Survey_response where Survey_responseId = ?", [$responseId]), $rJSON, 'Response unencrypted again');
 }
 
-$crypt->setProvider({ table => 'Survey_response', field => 'responseJSON', key => 'Survey_responseId', providerId => "$defaultProviderId" });
+###
 
 # Uncache canTake
 delete $s->{canTake};

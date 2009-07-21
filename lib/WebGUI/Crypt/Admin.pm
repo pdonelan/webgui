@@ -1,6 +1,7 @@
 package WebGUI::Crypt::Admin;
 
 use strict;
+use warnings;
 use Tie::IxHash;
 use WebGUI::AdminConsole;
 use WebGUI::HTMLForm;
@@ -86,8 +87,7 @@ Starts the CryptUpdateFieldProviders workflow.
 
 sub www_startWorkflow{
     my ( $session, $error ) = validate_pos( @_, { isa => 'WebGUI::Session' }, 0 );
-    WebGUI::Crypt::startCryptWorkflow($session);
-    return www_providers($session,"Workflow started");
+    return www_providers($session, WebGUI::Crypt->startCryptWorkflow($session) );
 }
 
 #-------------------------------------------------------------------
@@ -105,15 +105,18 @@ sub www_providers {
 
     my ( $running, $startDate, $endDate, $user ) = getWorkflowStatus($session);
 
+    my %cryptConfig = %{ $session->config->get('crypt') || {} };
+    my $cryptEnabled = $session->setting->get('cryptEnabled');
+
     if ($error) {
         $error = qq|<div class="error">$error</div>\n|;
     }
-    elsif ( !$session->setting->get('cryptEnabled') ) {
+    elsif ( !$cryptEnabled ) {
         my $settingsUrl = $session->url->page('op=crypt;func=settings');
         $error
             = qq|<div class="error">Crypt is currently disabled. You can enable it on the <a href="$settingsUrl">Settings</a> page.</div>\n|;
     }
-    elsif ( !$session->config->get('crypt') ) {
+    elsif ( !%cryptConfig ) {
         $error = qq|<div class="error">Please add one or more Providers to begin using Crypt.</div>\n|;
     }
     elsif ($endDate) {
@@ -138,40 +141,41 @@ sub www_providers {
 <tr><td colspan="2">UpdateProviders Workflow is currently running. It was started at %s by %s</td></tr>
 END_HTML
     }
-    elsif ( $session->setting->get('cryptEnabled') && $session->config->get('crypt') ) {
+    elsif ( $cryptEnabled && %cryptConfig ) {
         $f->submit( value => $i18n->get('Start UpdateProviders Workflow') );
     }
 
-    my $providerList = getProviderList($session);
+    my $providerUsage = getProviderUsage($session);
 
     my $providerTable;
-    if ( my $providers = $session->config->get('crypt') ) {
+    if (%cryptConfig) {
         $providerTable = <<END_HTML;
+<h2>Crypt Providers</h2>
 <table class="content">
     <thead class="tableHeader">
         <tr>
-            <td>Can Edit</td>
             <td>Name</td>
-            <td>Provider</td>
-            <td>Tables Using</td>
+            <td>Type</td>
+            <td>Active</td>
+            <td>Tables</td>
         </tr>
     </thead>
     <tbody class="tableData">
 END_HTML
 
         my @providerTableRows;
-        while ( my ( $providerId, $provider ) = each %{$providers} ) {
-            $provider->{provider} =~ s/WebGUI::Crypt:://;
-            my $canEdit = exists $providerList->{$providerId} ? 'No' : 'Yes';
-            my $tables;
-            map($tables .= " ". $_->[0],@{$providerList->{$providerId}});
+        while ( my ( $providerId, $provider ) = each %cryptConfig ) {
+            my $providerClass = $provider->{provider};
+            $providerClass =~ s/WebGUI::Crypt:://;
+            my $inUse = $providerUsage->{$providerId} ? 'Yes' : 'No';
+            my $tables = join ' ', map { "$_->{table}.$_->{field}.$_->{key}"  } @{ $providerUsage->{$providerId} };
             push @providerTableRows, {
                 name => $provider->{name},
                 html => <<END_HTML,
         <tr>
-            <td>$canEdit</td>
             <td>$provider->{name}</td>
-            <td>$provider->{provider}</td>
+            <td>$providerClass</td>
+            <td>$inUse</td>
             <td>$tables</td>
         </tr>
 END_HTML
@@ -191,36 +195,30 @@ END_HTML
 
 #-------------------------------------------------------------------
 
-=head2 getProviderList ( session )
+=head2 getProviderUsage ( session )
 
-Returns a hash ref of arrays of the providerId and the tables which use them.
+Returns a hashref mapping providerIds to objects containing the list of current tables, fields, keys and activeProviderIds
+for that providerId
 
 =cut
 
-sub getProviderList{
+sub getProviderUsage {
     my ($session) = @_;
-    my $ref = $session->db->buildArrayRefOfHashRefs( 
+    my $ref
+        = $session->db->buildArrayRefOfHashRefs(
         "select `table`, `field`, `key`, providerId, activeProviderIds from cryptFieldProviders order by providerId"
-    );
+        );
     my $providers;
-    map(push(@{$providers->{$_->{providerId}}}, [$_->{table}, $_->{field}, $_->{key}, $_->{activeProviderIds}]),@$ref);
+    map {
+        push @{ $providers->{ $_->{providerId} } }, {
+            table => $_->{table}, 
+            field => $_->{field}, 
+            key => $_->{key}, 
+            activeProviderIds => $_->{activeProviderIds},
+        };
+    } @$ref;
     return $providers;
 }
-
-#-------------------------------------------------------------------
-
-=head2 www_providersSave ( session )
-
-Save Crypt providers.
-
-=cut
-
-#sub www_providersSave {
-#    my ($session) = validate_pos( @_, { isa => 'WebGUI::Session' } );
-#    return $session->privilege->insufficient() unless canView($session);
-#    my $form = $session->form;
-#    return www_providers($session);
-#}
 
 #-------------------------------------------------------------------
 
@@ -252,6 +250,12 @@ sub www_settings {
         label     => $i18n->get('Enable?'),
         hoverHelp => $i18n->get('Enable? help'),
     );
+    $f->yesNo(
+        name      => 'triggerUpdateOnProviderChange',
+        value     => $session->form->get('triggerUpdateOnProviderChange') || $session->setting->get('cryptTriggerUpdateOnProviderChange') || 0,
+        label     => $i18n->get('triggerUpdateOnProviderChange'),
+        hoverHelp => $i18n->get('triggerUpdateOnProviderChange help'),
+    );
     $f->submit();
     my $ac = getAdminConsole($session);
     return $ac->render( $error . $f->print, $i18n->get('Crypt Settings') );
@@ -270,6 +274,7 @@ sub www_settingsSave {
     return $session->privilege->insufficient() unless canView($session);
     my $form = $session->form;
     $session->setting->set( 'cryptEnabled', $form->process( 'enabled', 'yesNo' ) );
+    $session->setting->set( 'cryptTriggerUpdateOnProviderChange', $form->process( 'triggerUpdateOnProviderChange', 'yesNo' ) );
     return www_settings($session);
 }
 1;

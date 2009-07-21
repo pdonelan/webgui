@@ -28,6 +28,18 @@ N.B. You cannot disable Crypt when Providers are active.
 		lastUpdated => 0,
 		context => q||
 	},
+	
+	'triggerUpdateOnProviderChange' => {
+		message => q|Update on Provider Change|,
+		lastUpdated => 0,
+		context => q||
+	},
+
+	'triggerUpdateOnProviderChange help' => {
+		message => q|Trigger the Update Crypt Providers Workflow whenever a Crypt provider is changed anywhere on the site|,
+		lastUpdated => 0,
+		context => q||
+	},
 
     'Manage Providers' => {
         message => q|Manage Providers|,

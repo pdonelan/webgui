@@ -1,10 +1,14 @@
 package WebGUI::Crypt::None;
+use strict;
+use warnings;
 use Class::InsideOut qw{ :std };
 use Crypt::CBC;
+use Params::Validate qw(:all);
+Params::Validate::validation_options( on_fail => sub { WebGUI::Error::InvalidParam->throw( error => shift ) } );
 
 =head1 NAME
 
-Package WebGUI::Crypt::None
+WebGUI::Crypt::None
 
 =head1 DESCRIPTION
 
@@ -39,7 +43,9 @@ Crypt config object
 =cut
 
 sub new {
-    my ( $class, $session, $arg_ref ) = @_;
+    my $class = shift;
+    my $session = shift;
+    my %opts = validate(@_, { providerId => 1, provider => 1, name => 1 });
 
     # Check arguments..
     if ( !defined $session || !$session->isa('WebGUI::Session') ) {
@@ -54,7 +60,7 @@ sub new {
 
     # Initialise object properties..
     my $id = id $self;
-    $providerId{$id} = $arg_ref->{providerId};
+    $providerId{$id} = $opts{providerId};
     $session{$id} = $session;
     
     return $self;

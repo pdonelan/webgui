@@ -38,28 +38,19 @@ pod2usage( msg => "Must specify a config file!" ) unless $configFile;
 my $session = start( $webguiRoot, $configFile );
 
 # Do your work here
-installCrypt($session);
-installCryptDemoData($session);
+crypt_updateConfigFile($session);
+crypt_addSettings($session);
+crypt_addTables($session);
+crypt_addWorkflow($session);
+crypt_demoData($session);
 finish($session);
 
 #----------------------------------------------------------------------------
 # Your sub here
 my $quiet;
 
-sub installCrypt {
+sub crypt_updateConfigFile {
     my $session = shift;
-    print "\tAdd cryptEnabled setting... " unless $quiet;
-    if ( !$session->db->quickScalar( 'select count(*) from settings where name=?', ['cryptEnabled'] ) ) {
-        $session->setting->add( 'cryptEnabled', 0 );
-    }
-    if ( !$session->db->quickScalar( 'select count(*) from settings where name=?', ['inboxMessageEncryption'] ) ) {
-        $session->setting->add( 'inboxMessageEncryption', 'None' );
-    }
-    print "DONE!\n" unless $quiet;
-
-    # For now, force crypt on since we assume you want to use it
-    # -- delete this when this becomes a wg upgrade script --
-    $session->setting->set( 'cryptEnabled', 1 );
 
     print "\tAdd Crypt entry to the config file... " unless $quiet;
 
@@ -68,27 +59,14 @@ sub installCrypt {
     if ( !exists $adminConsole->{'crypt'} ) {
         $adminConsole->{'crypt'} = {
             "icon"         => "crypt.png",
-            "uiLevel"      => 1,
+            "uiLevel"      => 9,
             "url"          => "^PageUrl(\"\",op=crypt);",
             "title"        => "^International(Crypt,Crypt);",
             "groupSetting" => "3",
         };
         $session->config->set( 'adminConsole', $adminConsole );
     }
-
-    # Add the workflow
-    my $workflows = $session->config->get( 'workflowActivities' );
-    push(@{$workflows->{'None'}},'WebGUI::Workflow::Activity::CryptUpdateFieldProviders');
-    $session->config->set('workflowActivities', $workflows);
-
-    $session->config->set('cryptClasses',
-        {
-          "WebGUI::Crypt::HSM" => { "url" => 1 },
-          "WebGUI::Crypt::None" => {},
-          "WebGUI::Crypt::Simple" => { "key" => 1 }
-        }
-    );
-
+    
     # Content Handler
     my $contentHandlers = $session->config->get('contentHandlers');
     if ( !isIn( 'WebGUI::Content::Crypt', @{$contentHandlers} ) ) {
@@ -103,18 +81,40 @@ sub installCrypt {
         }
         $session->config->set( 'contentHandlers', $contentHandlers );
     }
+    
+    # CryptUpdateFieldProviders workflow activity
+    my $workflows = $session->config->get('workflowActivities');
+    push( @{ $workflows->{'None'} }, 'WebGUI::Workflow::Activity::CryptUpdateFieldProviders' );
+    $session->config->set( 'workflowActivities', $workflows );
+    
+    print "DONE!\n" unless $quiet;
+}
 
-    #    # Workflow Activities
-    #    my $workflowActivities = $session->config->get('workflowActivities');
-    #    my @none = @{ $workflowActivities->{'None'} };
-    #    if (!isIn('WebGUI::Workflow::Activity::SummarizeCrypt', @none)) {
-    #        push  @none, 'WebGUI::Workflow::Activity::SummarizeCrypt';
-    #    }
-    #    if (!isIn('WebGUI::Workflow::Activity::BucketCrypt', @none)) {
-    #        push  @none, 'WebGUI::Workflow::Activity::BucketCrypt';
-    #    }
-    #    $workflowActivities->{'None'} = [ @none ];
-    #    $session->config->set('workflowActivities', $workflowActivities);
+sub crypt_addSettings {
+    my $session = shift;
+    
+    print "\tAdd crypt setting... " unless $quiet;
+    if ( !$session->db->quickScalar( 'select count(*) from settings where name=?', ['cryptEnabled'] ) ) {
+        $session->setting->add( 'cryptEnabled', 0 );
+    }
+    if ( !$session->db->quickScalar( 'select count(*) from settings where name=?', ['inboxMessageEncryption'] ) ) {
+        $session->setting->add( 'inboxMessageEncryption', 'None' );
+    }
+    if ( !$session->db->quickScalar( 'select count(*) from settings where name=?', ['cryptTriggerUpdateOnProviderChange'] ) ) {
+        $session->setting->add( 'cryptTriggerUpdateOnProviderChange', 0 );
+    }
+
+    # For now, force crypt on since we assume you want to use it
+    # -- delete this when this becomes a wg upgrade script --
+    $session->setting->set( 'cryptEnabled', 1 );
+    
+    print "DONE!\n" unless $quiet;
+}
+
+sub crypt_addTables {
+    my $session = shift;
+
+    print "\tAdd crypt db tables... " unless $quiet;
     $session->db->write(<<END_SQL);
 DROP TABLE IF EXISTS cryptFieldProviders;
 END_SQL
@@ -144,7 +144,28 @@ END_SQL
     print "DONE!\n" unless $quiet;
 }
 
-sub installCryptDemoData {
+sub crypt_addWorkflow {
+    my $session = shift;
+    
+    print "\tAdd Crypt Workflow... " unless $quiet;
+    my $workflow = WebGUI::Workflow->create(
+        $session,
+        {
+            title   => 'Update Crypt Providers',
+            mode    => 'singleton',
+            type    => 'None',
+            description => 'Manual changes to this workflow will be lost.  Please only use the Crypt Admin page to make changes',
+        },
+        'CryptProviders00000001',
+    );
+    my $activity = $workflow->addActivity('WebGUI::Workflow::Activity::CryptUpdateFieldProviders');
+    $activity->set('title', 'Update Crypt Providers');
+    $workflow->set({enabled => 1});
+    
+    print "DONE!\n" unless $quiet;
+}
+
+sub crypt_demoData {
     my $session = shift;
 
     print "\tAdd Crypt Demo Data... " unless $quiet;
@@ -166,7 +187,7 @@ sub installCryptDemoData {
                 provider => 'WebGUI::Crypt::HSM',
                 url      => 'https://hsm/',
             },
-            'None' => {
+            None => {
                 name     => 'None',
                 provider => 'WebGUI::Crypt::None',
             },

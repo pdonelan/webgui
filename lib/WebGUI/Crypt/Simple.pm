@@ -1,10 +1,14 @@
 package WebGUI::Crypt::Simple;
+use strict;
+use warnings;
 use Class::InsideOut qw{ :std };
 use Crypt::CBC;
+use Params::Validate qw(:all);
+Params::Validate::validation_options( on_fail => sub { WebGUI::Error::InvalidParam->throw( error => shift ) } );
 
 =head1 NAME
 
-Package WebGUI::Crypt::Simple
+WebGUI::Crypt::Simple
 
 =head1 DESCRIPTION
 
@@ -40,7 +44,9 @@ Crypt config object
 =cut
 
 sub new {
-    my ( $class, $session, $arg_ref ) = @_;
+    my $class = shift;
+    my $session = shift;
+    my %opts = validate(@_, { providerId => 1, provider => 1, name => 1, key => 1, cipher => { default => 'Crypt::Rijndael' }, salt => { default => 1 } });
     
     # Check arguments..
     if ( !defined $session || !$session->isa('WebGUI::Session') ) {
@@ -49,20 +55,18 @@ sub new {
             error => 'Need a session.'
         );
     }
-    if ( ref $arg_ref ne 'HASH' ) {
-        WebGUI::Error::InvalidParam->throw(
-            param => $arg_ref,
-            error => 'Need a valid WebGUI::Crypt config.'
-        );
-    }
-    if ( !$arg_ref->{key} ) {
-        WebGUI::Error::InvalidParam->throw(
-            param => $arg_ref,
-            error => 'WebGUI::Crypt::Simple needs a key in the config'
-        );
-    }
 
-    my $cipher_class = $arg_ref->{cipher} || 'Crypt::Rijndael';
+    my $cipher_class = $opts{cipher};
+    
+    # Make sure cipher_class module available
+    eval { WebGUI::Pluggable::load($cipher_class) };
+    if ($@) {
+        WebGUI::Error->throw(error => "Unable to load crypt simple provider cipher class $cipher_class: $@");
+    }
+    
+    if ($opts{salt} ne '1' && length $opts{salt} != 8) {
+        WebGUI::Error->throw(error => "Salt must be exactly 8 bytes long");
+    }
 
     # Register Class::InsideOut object..
     my $self = register 'WebGUI::Crypt::Simple';
@@ -70,27 +74,15 @@ sub new {
     # Initialise object properties..
     my $id = id $self;
     $session{$id} = $session;
-    $providerId{$id} = $arg_ref->{providerId};
+    $providerId{$id} = $opts{providerId};
 
     $cipher{$id}  = Crypt::CBC->new(
-        -key    => $arg_ref->{key},
+        -key    => $opts{key},
         -cipher => $cipher_class,
         -header => 'salt',
-        -salt   => 1,
+        -salt   => $opts{salt},
     );
     return $self;
-}
-
-#-------------------------------------------------------------------
-
-=head2 fields ()
-
-Returns a list of parameters and if they are required or not.
-
-=cut
-
-sub fields{
-    return [{'cipher',0,'key',1}]; 
 }
 
 #-------------------------------------------------------------------
@@ -103,7 +95,7 @@ Encrypt some plaintext
 
 sub encrypt {
     my ( $self, $plaintext ) = @_;
-    return "CRYPT:".$providerId{id $self}.":".$cipher{ id $self}->encrypt($plaintext);
+    return join ':', ('CRYPT', $providerId{id $self}, $cipher{ id $self}->encrypt($plaintext));
 }
 
 #-------------------------------------------------------------------
@@ -116,7 +108,7 @@ Encrypt some plaintext
 
 sub encrypt_hex {
     my ( $self, $plaintext ) = @_;
-    return "CRYPT:".$providerId{id $self}.":".$cipher{ id $self}->encrypt_hex($plaintext);
+    return join ':', ('CRYPT', $providerId{id $self}, $cipher{ id $self}->encrypt_hex($plaintext));
 }
 
 #-------------------------------------------------------------------

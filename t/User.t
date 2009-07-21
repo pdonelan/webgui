@@ -20,9 +20,10 @@ use WebGUI::Cache;
 use WebGUI::User;
 use WebGUI::ProfileField;
 
-use Test::More tests => 196; # increment this value for each test you create
+use Test::More tests => 207; # increment this value for each test you create
 use Test::Deep;
 use Data::Dumper;
+use WebGUI::CryptTest;
 
 my $session = WebGUI::Test->session;
 
@@ -90,6 +91,63 @@ is($user->profileField('testField'), 'this is a test', 'getting profile fields n
 is($user->profileField('wg_privacySettings'), '', '... wg_privacySettings may not be retrieved');
 $user->profileField('wg_privacySettings', '{"email"=>"all"}');
 is($user->profileField('wg_privacySettings'), '', '... wg_privacySettings may not be set');
+
+#########################################################
+# profileField crypt 
+#########################################################
+{
+
+    # Create crypt test object
+    my $ct = WebGUI::CryptTest->new( $session, 'User.t' );
+
+    # Start with encryption off
+    my $u1 = WebGUI::User->new( $session, 'new' );
+    $u1->profileField( 'firstName', 'bob' );
+    is( $session->db->quickScalar( 'select firstName from userProfileData where userId = ?', [ $u1->userId ] ),
+        'bob', 'Start with encryption off' );
+
+    # Set provider to SimpleTest, new users should use this
+    $session->crypt->setProvider(
+        { table => 'userProfileData', field => 'firstName', key => 'userId', providerId => 'SimpleTest' } );
+    my $u2 = WebGUI::User->new( $session, 'new' );
+    $u2->profileField( 'firstName', 'billy' );
+    like( $session->db->quickScalar( 'select firstName from userProfileData where userId = ?', [ $u2->userId ] ),
+        qr/^CRYPT:SimpleTest:/, '..and now encryption is on' );
+    is( $u2->profileField('firstName'), 'billy', '..but API sees unencrypted value' );
+    is( $session->db->quickScalar( 'select firstName from userProfileData where userId = ?', [ $u1->userId ] ),
+        'bob', '..and u1 still unencrypted' );
+    
+    my $u2_clone = WebGUI::User->new( $session, $u2->userId );
+    is($u2_clone->profileField('firstName'), 'billy', 'second user object also returns unencrypted value via API');
+
+    # Set provider to SimpleTest2 and run the workflow
+    $session->crypt->setProvider(
+        { table => 'userProfileData', field => 'firstName', key => 'userId', providerId => 'SimpleTest2' } );
+    WebGUI::Crypt->startCryptWorkflow($session);
+    like( $session->db->quickScalar( 'select firstName from userProfileData where userId = ?', [ $u1->userId ] ),
+        qr/^CRYPT:SimpleTest2:/, '..and now encryption on for both u1' );
+    like( $session->db->quickScalar( 'select firstName from userProfileData where userId = ?', [ $u2->userId ] ),
+        qr/^CRYPT:SimpleTest2:/, '..and u2' );
+
+    # Email encryption, newByEmail
+    $session->crypt->setProvider({ table => 'userProfileData', field => 'email', key => 'userId', providerId => 'SimpleTest3' } );
+    my $u3 = WebGUI::User->new( $session, 'new' );
+    $u3->username('crypt_test_u3'); # need a username otherwise newByEmail will refuse to return a value
+    is($u3->username, 'crypt_test_u3', 'Username set');
+    $u3->profileField( 'email', 'bob@bobbob.com' );
+    my $encryptedEmail = $session->crypt->encrypt_hex( 'bob@bobbob.com', { table => 'userProfileData', field => 'email' } );
+    is( $session->db->quickScalar( 'select email from userProfileData where userId = ?', [ $u3->userId ] ), $encryptedEmail, 'u3 has encrypted email' );
+    my $newByEmail = WebGUI::User->newByEmail( $session, 'bob@bobbob.com' );
+    isa_ok( $newByEmail, 'WebGUI::User', 'newByEmail returns a valid user when email encryption on' );
+    is( $newByEmail->userId, $u3->userId, '..and it is none other than u3' );
+
+    # Clean up crypt tests
+    $session->crypt->setProvider({ table => 'userProfileData', field => 'firstName', key => 'userId', providerId => 'None' } );
+    $session->crypt->setProvider({ table => 'userProfileData', field => 'email', key => 'userId', providerId => 'None' } );
+    $u1->delete;
+    $u2->delete;
+    $u3->delete;
+}
 
 ################################################################
 #
