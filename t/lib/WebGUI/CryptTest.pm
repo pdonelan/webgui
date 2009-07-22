@@ -54,21 +54,19 @@ sub _createTestConfig {
             },
             SimpleTest => {
                 provider => "WebGUI::Crypt::Provider::Simple",
-                name     => "Test Simple Provider - delete me",
+                name     => "Test Simple Provider",
                 key      => "Bingowashisnamo!",
-                cipher   => 'Crypt::Rijndael',
             },
             SimpleTest2 => {
                 provider => "WebGUI::Crypt::Provider::Simple",
-                name     => "Test Simple Provider2 - Blowfish",
+                name     => "Test Simple Provider 2",
                 key      => "had a farmer!",
-                cipher   => 'Crypt::Blowfish',
+                cipher   => 'Crypt::Rijndael', # It'd be nice to test another cipher here, but Crypt::Rijndael is the only one in the WRE
             },
             SimpleTest3 => {
                 provider => "WebGUI::Crypt::Provider::Simple",
-                name     => "Test Simple Provider3 - unsalted",
+                name     => "Test Simple Provider 3 - unsalted",
                 key      => "ee ii eee ii ooh!",
-                cipher   => 'Crypt::Rijndael',
                 salt     => 'unsalted',
             },
         }

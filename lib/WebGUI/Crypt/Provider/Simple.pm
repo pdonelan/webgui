@@ -14,6 +14,33 @@ WebGUI::Crypt::Provider::Simple
 
 Simple Crypt provider for WebGUI
 
+Simple in the sense that the encryption key is stored in your site config file. Encryption is carried out via L<Crypt::CBC>.
+
+You can choose a cipher class class to use from the following:
+
+=over 3
+
+=item L<Crypt::DES>
+
+=item L<Crypt::DES_EDE3>
+
+=item L<Crypt::IDEA>
+
+=item L<Crypt::Blowfish>
+
+=item L<Crypt::CAST5>
+
+=item L<Crypt::Rijndael>
+
+=back
+
+The default is L<Crypt::Rijndael>, which is recommended for simple compatibility with openssl. 
+See t/Crypt/OpenSSL.t for an example of how to manually decrypt data using the openssl command-line binary.
+
+You can specify a fixed salt (hello rainbow table attack), or leave it undefined to have a random salt used (the default).
+
+See L<Crypt::CBC> for more information.
+
 =head1 SYNOPSIS
 
 =head1 METHODS

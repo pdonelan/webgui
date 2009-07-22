@@ -172,24 +172,26 @@ sub crypt_demoData {
 
     $session->config->set(
         'crypt',
-        {   '43J5WEUlScqu_0e97z0fEA' => {
-                name     => 'My Simple Provider',
-                provider => 'WebGUI::Crypt::Provider::Simple',
-                key      => 'ABCDEFG'
-            },
-            '919ojmGovK93vUQncEdeUw' => {
-                name     => 'Another Simple Provider',
-                provider => 'WebGUI::Crypt::Provider::Simple',
-                key      => 'HIJKLMN'
-            },
-            'qvBZ_1zvMQJALHX_tyr1Ew' => {
-                name     => 'Sensitive Data',
-                provider => 'WebGUI::Crypt::HSM',
-                url      => 'https://hsm/',
-            },
-            None => {
+        {   None => {
                 name     => 'None',
                 provider => 'WebGUI::Crypt::Provider::None',
+            },
+            SimpleTest => {
+                provider => "WebGUI::Crypt::Provider::Simple",
+                name     => "Test Simple Provider",
+                key      => "Bingowashisnamo!",
+            },
+            SimpleTest2 => {
+                provider => "WebGUI::Crypt::Provider::Simple",
+                name     => "Test Simple Provider 2",
+                key      => "had a farmer!",
+                cipher   => 'Crypt::Rijndael',
+            },
+            SimpleTest3 => {
+                provider => "WebGUI::Crypt::Provider::Simple",
+                name     => "Test Simple Provider 3 - unsalted",
+                key      => "ee ii eee ii ooh!",
+                salt     => 'unsalted',
             },
         }
     );

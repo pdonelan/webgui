@@ -168,7 +168,7 @@ END_HTML
             my $providerClass = $provider->{provider};
             $providerClass =~ s/WebGUI::Crypt:://;
             my $inUse = $providerUsage->{$providerId} ? 'Yes' : 'No';
-            my $tables = join ' ', map { "$_->{table}.$_->{field}.$_->{key}"  } @{ $providerUsage->{$providerId} };
+            my $tables = join ' ', map { "$_->{table}.$_->{field}"  } @{ $providerUsage->{$providerId} };
             push @providerTableRows, {
                 name => $provider->{name},
                 html => <<END_HTML,

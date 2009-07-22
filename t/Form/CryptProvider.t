@@ -41,7 +41,7 @@ is($cp->getDefaultValue, 'None', 'provider defaults to None');
 $cp->toHtml; # Causes options to be set (a bit hacky)
 cmp_deeply($cp->getOptions, {
         None => 'None',
-        SimpleTest => "Test Simple Provider - delete me",
-        SimpleTest2 => "Test Simple Provider2 - Blowfish",
-        SimpleTest3 => "Test Simple Provider3 - unsalted",
+        SimpleTest => "Test Simple Provider",
+        SimpleTest2 => "Test Simple Provider 2",
+        SimpleTest3 => "Test Simple Provider 3 - unsalted",
     }, 'getOptions gives us all providers created by WebGUI::CryptTest');

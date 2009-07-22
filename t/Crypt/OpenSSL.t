@@ -24,7 +24,7 @@ my $ct = WebGUI::CryptTest->new( $session, 'OpenSSL.t' );
 #----------------------------------------------------------------------------
 # Tests
 WebGUI::Error->Trace(1);    # Turn on tracing of uncaught Exception::Class exceptions
-plan tests => 2;
+plan tests => 3;
 
 #----------------------------------------------------------------------------
 # put your tests here
@@ -32,9 +32,6 @@ plan tests => 2;
 #----------------------------------------------------------------------------
 
 for my $providerId qw(SimpleTest SimpleTest2 SimpleTest3) {
-    
-    # skip SimpleTest2 bc it uses Blowfish
-    next if $providerId eq 'SimpleTest2';
     
     my $key       = $ct->getProviderConfig($providerId)->{key};
     my $plaintext = 'test';
