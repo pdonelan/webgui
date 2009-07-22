@@ -21,7 +21,7 @@ use WebGUI::User;
 #----------------------------------------------------------------------------
 # Init
 my $session = WebGUI::Test->session;
-my $tests_to_run = 10_000;
+my $tests_to_run = 100_000;
 
 #----------------------------------------------------------------------------
 # Create test data
@@ -37,23 +37,26 @@ my $inbox = WebGUI::Inbox->new($session);
 # Firstly, delete ALL inbox messages (otherwise the "change provider" test below will do extra work)
 $session->db->write("delete from inbox");
 
-# First add without provider set
-{
-    $session->db->write("delete from inbox where userId = ?", [$userId]);
-    my $ct = WebGUI::CryptTest->new( $session, 'crypt_benchmark.pl' );
-    timethis ($tests_to_run, "addMessage()");
-    my $msgs = $session->db->quickScalar('select count(*) from inbox where userId = ?', [$userId]);
-    if ($msgs != $tests_to_run) {
-        die "Got $msgs messages, expected $tests_to_run";
-    }
-}
+my $benchmarks;
+
+## This test commented out because it gives the same result as None
+## First add without provider set
+#{
+#    $session->db->write("delete from inbox where userId = ?", [$userId]);
+#    my $ct = WebGUI::CryptTest->new( $session, 'crypt_benchmark.pl' );
+#    $benchmarks->{"NoProvider"} = timethis ($tests_to_run, "addMessage()");
+#    my $msgs = $session->db->quickScalar('select count(*) from inbox where userId = ?', [$userId]);
+#    if ($msgs != $tests_to_run) {
+#        die "Got $msgs messages, expected $tests_to_run";
+#    }
+#}
 
 # Then re-run with Provider set to None
 {
     $session->db->write("delete from inbox where userId = ?", [$userId]);
     my $ct = WebGUI::CryptTest->new( $session, 'crypt_benchmark.pl' );
     $session->crypt->setProvider({table=>'inbox', field=>'message', key=>'messageId','providerId'=>'None'});
-    timethis ($tests_to_run, "addMessage()");
+    $benchmarks->{"None"} = timethis ($tests_to_run, "addMessage()");
     my $msgs = $session->db->quickScalar('select count(*) from inbox where userId = ?', [$userId]);
     if ($msgs != $tests_to_run) {
         die "Got $msgs messages, expected $tests_to_run";
@@ -63,7 +66,8 @@ $session->db->write("delete from inbox");
 # Now change provider to SimpleTest
 {
     my $ct = WebGUI::CryptTest->new( $session, 'crypt_benchmark.pl' );
-    timethis (1, "changeAndWaitForWorkflow()");
+    $benchmarks->{'None->Simple'} = timethis (1, "changeAndWaitForWorkflow()");
+    $benchmarks->{'None->Simple'}[5] = $tests_to_run; # This corresponds to $tests_to_run iterations, not "1"
     my $encrypted = $session->db->quickScalar('select count(*) from inbox where message like "CRYPT:SimpleTest:%" and userId = ?', [$userId]);
     my $unencrypted = $session->db->quickScalar('select count(*) from inbox where message not like "CRYPT:SimpleTest:%" and userId = ?', [$userId]);
     if ($encrypted != $tests_to_run || $unencrypted != 0) {
@@ -76,12 +80,14 @@ $session->db->write("delete from inbox");
     $session->db->write("delete from inbox where userId = ?", [$userId]);
     my $ct = WebGUI::CryptTest->new( $session, 'crypt_benchmark.pl' );
     $session->crypt->setProvider({table=>'inbox', field=>'message', key=>'messageId','providerId'=>'SimpleTest'});
-    timethis ($tests_to_run, "addMessage()");
+    $benchmarks->{"Simple"} = timethis ($tests_to_run, "addMessage()");
     my $msgs = $session->db->quickScalar('select count(*) from inbox where userId = ?', [$userId]);
     if ($msgs != $tests_to_run) {
         die "Got $msgs messages, expected $tests_to_run";
     }
 }
+
+cmpthese($benchmarks);
 
 sub addMessage {
     my $message_body = 
