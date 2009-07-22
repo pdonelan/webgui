@@ -24,31 +24,34 @@ my $ct = WebGUI::CryptTest->new( $session, 'OpenSSL.t' );
 #----------------------------------------------------------------------------
 # Tests
 WebGUI::Error->Trace(1);    # Turn on tracing of uncaught Exception::Class exceptions
-plan tests => 1;
+plan tests => 2;
 
 #----------------------------------------------------------------------------
 # put your tests here
 
 #----------------------------------------------------------------------------
 
-my $key       = $ct->getProviderConfig('SimpleTest')->{key};
-my $plaintext = 'test';
+for my $providerId qw(SimpleTest SimpleTest2 SimpleTest3) {
+    
+    # skip SimpleTest2 bc it uses Blowfish
+    next if $providerId eq 'SimpleTest2';
+    
+    my $key       = $ct->getProviderConfig($providerId)->{key};
+    my $plaintext = 'test';
 
-# First ask provider to encrypt
-my $ciphertext = $session->crypt->encrypt_hex( $plaintext, { providerId => 'SimpleTest' } );
+    # First ask provider to encrypt
+    my $encrypted = $session->crypt->encrypt( $plaintext, { providerId => $providerId } );
 
-# Then parse header
-( my $providerId, $ciphertext ) = $session->crypt->parseHeader($ciphertext);
+    # Then parse header
+    my ( $pId, $ciphertext ) = $session->crypt->parseHeader($encrypted);
 
-# Then binary-encode..
-my $binary_ciphertext = pack('H*',$ciphertext);
+    # Then base64 encode the way openssl likes it
+    my $ciphertext_base64 = encode_base64($ciphertext);    # Note to the curious, base64 adds a newline to the end, which is expected and required for OpenSSL compat
 
-# ..so that we can base64 encode the way openssl likes it
-my $ciphertext_base64 = encode_base64($binary_ciphertext);    # Note to the curious, base64 adds a newline to the end, which is expected and required for OpenSSL compat
+    # Construct our command:
+    my $cmd = qq{echo "$ciphertext_base64" | /data/wre/prereqs/bin/openssl enc -aes256 -salt -a -d -k "$key"};
 
-# Construct our command:
-my $cmd = qq{echo "$ciphertext_base64" | /data/wre/prereqs/bin/openssl enc -aes256 -salt -a -d -k "$key"};
-
-diag("Running command: $cmd");
-my $output = `$cmd`;
-is( $output, $plaintext, 'Decrypted ciphertext using OpenSSL' ) or warn $output;
+    diag("Running command: $cmd");
+    my $output = `$cmd`;
+    is( $output, $plaintext, 'Decrypted ciphertext using OpenSSL' ) or warn $output;
+}

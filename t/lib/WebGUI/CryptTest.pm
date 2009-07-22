@@ -50,22 +50,22 @@ sub _createTestConfig {
         'crypt',
         {   None => {
                 name     => 'None',
-                provider => 'WebGUI::Crypt::None',
+                provider => 'WebGUI::Crypt::Provider::None',
             },
             SimpleTest => {
-                provider => "WebGUI::Crypt::Simple",
+                provider => "WebGUI::Crypt::Provider::Simple",
                 name     => "Test Simple Provider - delete me",
                 key      => "Bingowashisnamo!",
                 cipher   => 'Crypt::Rijndael',
             },
             SimpleTest2 => {
-                provider => "WebGUI::Crypt::Simple",
+                provider => "WebGUI::Crypt::Provider::Simple",
                 name     => "Test Simple Provider2 - Blowfish",
                 key      => "had a farmer!",
                 cipher   => 'Crypt::Blowfish',
             },
             SimpleTest3 => {
-                provider => "WebGUI::Crypt::Simple",
+                provider => "WebGUI::Crypt::Provider::Simple",
                 name     => "Test Simple Provider3 - unsalted",
                 key      => "ee ii eee ii ooh!",
                 cipher   => 'Crypt::Rijndael',
@@ -83,7 +83,7 @@ extra providerId field added. This is typically used to manually instantiate
 a Crypt provider for testing, using one of the test providers created by
 this class e.g.
  my $ct = WebGUI::CryptTest->new( $session, 'None.t' );
- my $none = WebGUI::Crypt::None->new( $session, $ct->getProviderConfig('None') );
+ my $none = WebGUI::Crypt::Provider::None->new( $session, $ct->getProviderConfig('None') );
 
 =head3 providerId
 
@@ -119,6 +119,11 @@ sub DEMOLISH {
     $self->session->db->write("delete from cryptFieldProviders");
 
     # Restore original crypt config
-    $self->session->config->set( 'crypt', $originalConfig{ id $self} );
+    my $config = $originalConfig{id $self};
+    # Remove the providerId field we may have added via L<getProviderConfig>
+    for my $providerSettings (values %$config) {
+        delete $providerSettings->{providerId};
+    }
+    $self->session->config->set( 'crypt', $config );
 }
 1;

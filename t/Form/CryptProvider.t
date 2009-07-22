@@ -1,4 +1,4 @@
-# Tests WebGUI::Crypt::Simple
+# Tests WebGUI::Crypt::Provider::Simple
 #
 #
 

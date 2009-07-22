@@ -174,12 +174,12 @@ sub crypt_demoData {
         'crypt',
         {   '43J5WEUlScqu_0e97z0fEA' => {
                 name     => 'My Simple Provider',
-                provider => 'WebGUI::Crypt::Simple',
+                provider => 'WebGUI::Crypt::Provider::Simple',
                 key      => 'ABCDEFG'
             },
             '919ojmGovK93vUQncEdeUw' => {
                 name     => 'Another Simple Provider',
-                provider => 'WebGUI::Crypt::Simple',
+                provider => 'WebGUI::Crypt::Provider::Simple',
                 key      => 'HIJKLMN'
             },
             'qvBZ_1zvMQJALHX_tyr1Ew' => {
@@ -189,7 +189,7 @@ sub crypt_demoData {
             },
             None => {
                 name     => 'None',
-                provider => 'WebGUI::Crypt::None',
+                provider => 'WebGUI::Crypt::Provider::None',
             },
         }
     );

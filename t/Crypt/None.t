@@ -1,4 +1,4 @@
-# Tests WebGUI::Crypt::None
+# Tests WebGUI::Crypt::Provider::None
 #
 #
 
@@ -24,19 +24,19 @@ my $ct = WebGUI::CryptTest->new( $session, 'None.t' );
 #----------------------------------------------------------------------------
 # Tests
 WebGUI::Error->Trace(1);    # Turn on tracing of uncaught Exception::Class exceptions
-plan tests => 7;
+plan tests => 21;
 
 #----------------------------------------------------------------------------
 # put your tests here
-use_ok('WebGUI::Crypt::None');
+use_ok('WebGUI::Crypt::Provider::None');
 
 #######################################################################
 #
 # constructor
 #
 #######################################################################
-my $crypt = WebGUI::Crypt::None->new( $session, $ct->getProviderConfig('None') );
-isa_ok( $crypt, 'WebGUI::Crypt::None', 'constructor works' );
+my $crypt = WebGUI::Crypt::Provider::None->new( $session, $ct->getProviderConfig('None') );
+isa_ok( $crypt, 'WebGUI::Crypt::Provider::None', 'constructor works' );
 is( $crypt->providerId(), 'None', "provider was created ");
 
 #######################################################################
@@ -44,7 +44,19 @@ is( $crypt->providerId(), 'None', "provider was created ");
 # en/decrypt
 #
 #######################################################################
-is( $crypt->decrypt($crypt->encrypt("hi")), 'hi', 'encrypt hi should return hi');
-is($session->crypt->decrypt($session->crypt->encrypt('hi', { providerId => 'None' })), 'hi', '..same via session->crypt');
-is( $crypt->decrypt($crypt->encrypt()), undef, 'roundtrip encryption on undef should return empty string');
-is($session->crypt->decrypt($session->crypt->encrypt('', { providerId => 'None' })), '', '..same via session->crypt');
+# These call the WebGUI::Crypt::Provider::None object, and all do nothing
+for my $input ('hi', '', undef) {
+    is($crypt->encrypt($input), $input, 'encrypt returns [$input] unchanged');
+    is($crypt->decrypt($input), $input, 'decrypt returns [$input] unchanged');
+}
+
+for my $method (qw(crypt crypt_hex)) {
+    my $encrypt = "en$method";
+    my $decrypt = "de$method";
+    
+    # These go via the session->crypt object, and all do nothing
+    for my $input ('hi', '', undef) {
+        is($session->crypt->encrypt($input, { providerId => 'None' }), $input, 'session->crypt->encrypt returns [$input] unchanged');
+        is($session->crypt->decrypt($input), $input, 'session->crypt->decrypt returns [$input] unchanged');
+    }
+}

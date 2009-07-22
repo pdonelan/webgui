@@ -67,19 +67,22 @@ ok($message_cnt > 0, 'Messages returned for user');
 # crypt #
 #########################################################
 {
+    # Remove existing test message
+    $session->db->write('delete from inbox where messageId = ?', [$message->getId]);
+    
     # Create crypt test object
     my $ct = WebGUI::CryptTest->new( $session, 'Inbox.t' );
 
     # Start off with inbox encryption off
     $session->crypt->setProvider(
-        { table => 'inbox', field => 'message', key => 'messageId', 'providerId' => 'None' } );
+        { table => 'inbox', field => 'message', key => 'messageId', providerId => 'None' } );
     my $msg1 = $inbox->addMessage( { message => 'my msg1', groupId => 3, userId => 1 } );
     is( $session->db->quickScalar( 'select message from inbox where messageId = ?', [ $msg1->getId ] ),
         'my msg1', 'Start with encryption off' );
 
     # Set provider to SimpleTest, new messages should use this
     $session->crypt->setProvider(
-        { table => 'inbox', field => 'message', key => 'messageId', 'providerId' => 'SimpleTest' } );
+        { table => 'inbox', field => 'message', key => 'messageId', providerId => 'SimpleTest' } );
     my $msg2 = $inbox->addMessage( { message => 'my msg2', groupId => 3, userId => 1 } );
     like( $session->db->quickScalar( 'select message from inbox where messageId = ?', [ $msg2->getId ] ),
         qr/^CRYPT:SimpleTest:/, '..and now encryption is on' );
@@ -89,7 +92,7 @@ ok($message_cnt > 0, 'Messages returned for user');
 
     # Set provider to SimpleTest2 and run the workflow
     $session->crypt->setProvider(
-        { table => 'inbox', field => 'message', key => 'messageId', 'providerId' => 'SimpleTest2' } );
+        { table => 'inbox', field => 'message', key => 'messageId', providerId => 'SimpleTest2' } );
     WebGUI::Crypt->startCryptWorkflow($session);
     is( $session->db->quickScalar(
             'select count(*) from inbox where messageId in (?,?) and message like "CRYPT:SimpleTest2:%"',

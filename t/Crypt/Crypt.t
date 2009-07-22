@@ -24,7 +24,7 @@ my $ct = WebGUI::CryptTest->new( $session, 'Crypt.t' );
 #----------------------------------------------------------------------------
 # Tests
 WebGUI::Error->Trace(1);    # Turn on tracing of uncaught Exception::Class exceptions
-plan tests => 30;
+plan tests => 32;
 
 #----------------------------------------------------------------------------
 # put your tests here
@@ -105,6 +105,11 @@ use_ok('WebGUI::Crypt');
     is( $a, 'None',  'Header returns the None provider' );
     is( $b, 'hello', 'Header returns the None provider and text' );
 }
+{
+    my ( $a, $b ) = $session->crypt->parseHeader("CRYPT:BobJaneCryptMart:hello\n with\n newlines!");
+    is( $a, 'BobJaneCryptMart',  'Header returns the correct provider' );
+    is( $b, "hello\n with\n newlines!", '..and ciphertext, even when newlines present' );
+}
 
 #----------------------------------------------------------------------------
 # session->crypt->isEnabled
@@ -152,7 +157,7 @@ use_ok('WebGUI::Crypt');
 }
 {
     isa_ok( $session->crypt->_getProvider( { providerId => 'None' } ),
-        'WebGUI::Crypt::None', 'There should always be a None provider to test against' );
+        'WebGUI::Crypt::Provider::None', 'There should always be a None provider to test against' );
 }
 
 #----------------------------------------------------------------------------

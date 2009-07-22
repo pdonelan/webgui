@@ -127,10 +127,10 @@ sub execute {
         }
 
         # We finished processing a field provider without timing out, check the dataset wasn't modified while we were working..
-        # Need two types of queries, one for WebGUI::Crypt::None and one for all other provider types
+        # Need two types of queries, one for WebGUI::Crypt::Provider::None and one for all other provider types
         my $targetField = "CRYPT:$providerId:%";
         my $sql         = "select count(*) from $table_quoted where $field_quoted not like ?";
-        if ( $cryptConfig->{$providerId}->{provider} eq "WebGUI::Crypt::None" ) {
+        if ( $cryptConfig->{$providerId}->{provider} eq "WebGUI::Crypt::Provider::None" ) {
             $targetField = "CRYPT:%";
             $sql         = "select count(*) from $table_quoted where $field_quoted like ?";
         }
@@ -140,7 +140,7 @@ sub execute {
         }
         else {
             # dataset now uses $providerId exclusively, so clear out activeProviderIds
-            if ( $cryptConfig->{$providerId}->{provider} eq "WebGUI::Crypt::None" ) {
+            if ( $cryptConfig->{$providerId}->{provider} eq "WebGUI::Crypt::Provider::None" ) {
                 # If new provider is None, we can remove the row altogether
                 $session->db->write(
                 "delete from cryptFieldProviders where `table` = ? and `field` = ?",

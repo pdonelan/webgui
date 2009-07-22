@@ -1,4 +1,4 @@
-package WebGUI::Crypt::Simple;
+package WebGUI::Crypt::Provider::Simple;
 use strict;
 use warnings;
 use Class::InsideOut qw{ :std };
@@ -8,7 +8,7 @@ Params::Validate::validation_options( on_fail => sub { WebGUI::Error::InvalidPar
 
 =head1 NAME
 
-WebGUI::Crypt::Simple
+WebGUI::Crypt::Provider::Simple
 
 =head1 DESCRIPTION
 
@@ -69,7 +69,7 @@ sub new {
     }
 
     # Register Class::InsideOut object..
-    my $self = register 'WebGUI::Crypt::Simple';
+    my $self = register 'WebGUI::Crypt::Provider::Simple';
 
     # Initialise object properties..
     my $id = id $self;
@@ -95,20 +95,7 @@ Encrypt some plaintext
 
 sub encrypt {
     my ( $self, $plaintext ) = @_;
-    return join ':', ('CRYPT', $providerId{id $self}, $cipher{ id $self}->encrypt($plaintext));
-}
-
-#-------------------------------------------------------------------
-
-=head2 encrypt_hex ( $plaintext )
-
-Encrypt some plaintext
-
-=cut
-
-sub encrypt_hex {
-    my ( $self, $plaintext ) = @_;
-    return join ':', ('CRYPT', $providerId{id $self}, $cipher{ id $self}->encrypt_hex($plaintext));
+    return $cipher{ id $self}->encrypt($plaintext);
 }
 
 #-------------------------------------------------------------------
@@ -121,20 +108,8 @@ Decrypt some ciphertext
 
 sub decrypt {
     my ( $self, $ciphertext ) = @_;
+    return if not defined $ciphertext;
     return $cipher{ id $self}->decrypt($ciphertext);
-}
-
-#-------------------------------------------------------------------
-
-=head2 decrypt_hex ( $ciphertext )
-
-Decrypt some ciphertext
-
-=cut
-
-sub decrypt_hex {
-    my ( $self, $ciphertext ) = @_;
-    return $cipher{ id $self}->decrypt_hex($ciphertext);
 }
 
 1;

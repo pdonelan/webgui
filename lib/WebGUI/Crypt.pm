@@ -97,47 +97,36 @@ sub _getProvider {
     # Provider id is either passed in, or we look it up, or it defaults to None
     my $providerId = $args->{providerId} || $self->lookupProviderId($args) || 'None';
 
-    #return object if already created
-    if ($providerId) {
-        return $providers{ id $self}->{$providerId} if $providers{ id $self}->{$providerId};
+    # Try looking up provider in cache
+    if (my $provider = $providers{ id $self}->{$providerId}) {
+        return $provider;
     }
 
-    my $module;
-    my $providerData;
-
-    if ( $providerId eq 'None' ) {
-        $module                     = "WebGUI::Crypt::None";
-        $providerData               = $session{ id $self}->config->get("crypt")->{'None'};
-        $providerData->{providerId} = $providerId;
-    }
-    else {
-        $providerData = $session{ id $self}->config->get("crypt")->{$providerId};
-        if ( !$providerData ) {
-            WebGUI::Error::InvalidParam->throw(
-                param => $args,
-                error => "WebGUI::Crypt provider not found in site config: $providerId"
-            );
-        }
-        $providerData->{providerId} = $providerId;
-        $module = $providerData->{provider};
-    }
-
+    # Otherwise, let's instantiate it..
+    my $providerData = $session{ id $self}->config->get("crypt")->{$providerId} or
+        WebGUI::Error::InvalidParam->throw(
+            param => $args,
+            error => "WebGUI::Crypt provider not found in site config: $providerId"
+        );
+    $providerData->{providerId} = $providerId;
+    my $providerClass = $providerData->{provider};
+    
     # Try loading the Provider..
-    eval { WebGUI::Pluggable::load($module) };
+    eval { WebGUI::Pluggable::load($providerClass) };
     if ( Exception::Class->caught() ) {
         WebGUI::Error::Pluggable::LoadFailed->throw(
             error  => $EVAL_ERROR,
-            module => $module,
+            module => $providerClass,
         );
     }
 
     # Instantiate the Provider..
     my $provider;
-    eval { $provider = $module->new( $session{ id $self}, $providerData ) };
+    eval { $provider = $providerClass->new( $session{ id $self}, $providerData ) };
     if ( Exception::Class->caught() ) {
         WebGUI::Error::Pluggable::RunFailed->throw(
             error      => $EVAL_ERROR,
-            module     => $module,
+            module     => $providerClass,
             subroutine => 'new',
             params     => [ $session{ id $self}, $args ],
         );
@@ -256,14 +245,11 @@ This is a hash ref which must contain a 'providerId' or a 'table' and 'field' in
 
 sub encrypt {
     my ( $self, $plaintext, $args ) = @_;
-    if ( !defined $plaintext ) {
-        WebGUI::Error::InvalidParam->throw(
-            param => $plaintext,
-            error => 'encrypt needs $plaintext defined.'
-        );
-    }
     return unless $self->isEnabled;
-    $self->_getProvider($args)->encrypt($plaintext);
+    my $provider = $self->_getProvider($args);
+    my $providerId = $provider->providerId;
+    return $plaintext if $providerId eq 'None';
+    return join ':', ('CRYPT', $providerId, $provider->encrypt($plaintext));
 }
 
 #-------------------------------------------------------------------
@@ -276,14 +262,11 @@ Same as L<encrypt>, but returns hex-encoded encrypted string
 
 sub encrypt_hex {
     my ( $self, $plaintext, $args ) = @_;
-    if ( !defined $plaintext ) {
-        WebGUI::Error::InvalidParam->throw(
-            param => $plaintext,
-            error => 'encrypt_hex needs $plaintext defined.'
-        );
-    }
     return unless $self->isEnabled;
-    $self->_getProvider($args)->encrypt_hex($plaintext);
+    my $provider = $self->_getProvider($args);
+    my $providerId = $provider->providerId;
+    return $plaintext if $providerId eq 'None';
+    return join ':', ('CRYPT', $providerId, unpack('H*', $provider->encrypt($plaintext)));
 }
 
 #-------------------------------------------------------------------
@@ -299,6 +282,7 @@ sub decrypt {
     return unless defined $ciphertext;
     return $ciphertext unless $self->isEnabled;
     my ( $providerId, $text ) = $self->parseHeader($ciphertext);
+    return $text if $providerId eq 'None';
     return $self->_getProvider( { providerId => $providerId } )->decrypt($text);
 }
 
@@ -315,7 +299,8 @@ sub decrypt_hex {
     return unless defined $ciphertext;
     return $ciphertext unless $self->isEnabled;
     my ( $providerId, $text ) = $self->parseHeader($ciphertext);
-    return $self->_getProvider( { providerId => $providerId } )->decrypt_hex($text);
+    return $text if $providerId eq 'None';
+    return $self->_getProvider( { providerId => $providerId } )->decrypt(pack('H*', $text));
 }
 
 #-------------------------------------------------------------------
