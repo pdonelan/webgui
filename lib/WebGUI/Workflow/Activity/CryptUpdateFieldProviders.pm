@@ -103,7 +103,10 @@ sub execute {
     while ( my ( $table, $field, $key, $providerId ) = $fieldProvidersSth->array ) {
         # Each time we re-encrypt a field, it header gets updated to the new provider, thus
         # the following result set dwindles on each update:
-        my $fieldSth = $session->db->read( "select `$field`, `$key` from `$table` where `$field` not like ?",
+        my $table_quoted = $session->db->dbh->quote_identifier($table);
+        my $field_quoted = $session->db->dbh->quote_identifier($field);
+        my $key_quoted = $session->db->dbh->quote_identifier($key);
+        my $fieldSth = $session->db->read( "select $field_quoted, $key_quoted from $table_quoted where $field_quoted not like ?",
             ["CRYPT:$providerId:%"] );
         
         # Re-encrypt data one field at a time:
@@ -117,7 +120,7 @@ sub execute {
                 return $self->COMPLETE;
             }
             # Push back to the db, after which the row will no longer match $fieldSth resultset
-            $session->db->write( "update `$table` set `$field` = ? where `$key` = ?", [ $data, $uniqueKey ] );
+            $session->db->write( "update $table_quoted set $field_quoted = ? where $key_quoted = ?", [ $data, $uniqueKey ] );
             
             # Give other workflows a chance to run
             return $self->WAITING(1) if ( time() > $endTime );
@@ -126,10 +129,10 @@ sub execute {
         # We finished processing a field provider without timing out, check the dataset wasn't modified while we were working..
         # Need two types of queries, one for WebGUI::Crypt::None and one for all other provider types
         my $targetField = "CRYPT:$providerId:%";
-        my $sql         = "select count(*) from `$table` where `$field` not like ?";
+        my $sql         = "select count(*) from $table_quoted where $field_quoted not like ?";
         if ( $cryptConfig->{$providerId}->{provider} eq "WebGUI::Crypt::None" ) {
             $targetField = "CRYPT:%";
-            $sql         = "select count(*) from `$table` where `$field` like ?";
+            $sql         = "select count(*) from $table_quoted where $field_quoted like ?";
         }
         if ( $session->db->quickScalar( $sql, [$targetField] ) ) {
             # Dataset *did* change, so do another pass over $fieldSth (but only for the few rows that match)
