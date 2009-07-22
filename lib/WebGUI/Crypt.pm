@@ -307,24 +307,19 @@ sub decrypt_hex {
 
 =head2 parseHeader ( $ciphertext )
 
-Parse and return the header
+Parse ciphertext header, which, if valid, looks like CRYPT:providerId:encrypted_text
+
+Returns the array: ( providerId, encrypted_text )
 
 =cut
 
 sub parseHeader {
     my ( $self, $ciphertext ) = @_;
-    if ($ciphertext =~ m{
-            \A      # start of string
-            CRYPT:  # CRYPT header start
-            (.*?):  # crypt providerID
-            (.*)    # ciphertext
-            \z      # end of string
-            }xms    # most important is 's' option bc ciphertext could contain newlines (binary)
-        )
-    {
-        return ( $1, $2 );
-    }
-    else {
+    # Use split as opposed to a regex for speed
+    my ($CRYPT, $providerId, $text) = split ':', $ciphertext, 3;
+    if ($CRYPT && $CRYPT eq 'CRYPT' && $providerId) {
+        return ( $providerId, $text );
+    } else {
         return ( 'None', $ciphertext );
     }
 }
