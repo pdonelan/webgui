@@ -24,7 +24,7 @@ my $ct = WebGUI::CryptTest->new( $session, 'Simple.t' );
 #----------------------------------------------------------------------------
 # Tests
 WebGUI::Error->Trace(1);    # Turn on tracing of uncaught Exception::Class exceptions
-plan tests => 22;
+plan tests => 37;
 
 #----------------------------------------------------------------------------
 # put your tests here
@@ -42,34 +42,37 @@ for my $providerId (qw(SimpleTest SimpleTest2 SimpleTest3)) {
 
     #######################################################################
     #
-    # en/decrypt
+    # en/decrypt[_hex]
     #
     #######################################################################
-    {
-        my $t = $crypt->encrypt_hex('hi');
-        $t =~ /CRYPT:(.*?):(.*)/;
-        is( $crypt->decrypt_hex($2), 'hi', 'encrypt hi should return hi');
-    }
-    {
-        my $t = $crypt->encrypt_hex('');
-        $t =~ /CRYPT:(.*?):(.*)/;
-        my $cipher = $2;
-        is( $crypt->decrypt_hex($cipher), '', 'encrypt nothing should return nothing');
-    }
-    is($session->crypt->decrypt_hex($session->crypt->encrypt_hex('hi', { providerId => $providerId })), 'hi', 'Roundtrip on string: "hi"');
-    is($session->crypt->decrypt_hex($session->crypt->encrypt_hex('', { providerId => $providerId })), '', '..same for empty string');
-    
-    if ($ct->getProviderConfig($providerId)->{salt}) {
-        is( 
-            $session->crypt->encrypt_hex('hi', { providerId => $providerId }), 
-            $session->crypt->encrypt_hex('hi', { providerId => $providerId }),
-            'fixed salt, so same encrypted string every time (hello rainbow table attack)'
-        );
-    } else {
-        isnt( 
-            $session->crypt->encrypt_hex('hi', { providerId => $providerId }), 
-            $session->crypt->encrypt_hex('hi', { providerId => $providerId }),
-            'random salt, so encrypted string is different every time'
-        );
+    for my $method (qw(crypt crypt_hex)) {
+        my $encrypt = "en$method";
+        my $decrypt = "de$method";
+        {
+            my $t = $crypt->$encrypt('hi');
+            my ( $providerId, $text ) = $session->crypt->parseHeader($t);
+            is( $crypt->$decrypt($text), 'hi', "$encrypt hi should return hi");
+        }
+        {
+            my $t = $crypt->$encrypt('');
+            my ( $providerId, $text ) = $session->crypt->parseHeader($t);
+            is( $crypt->$decrypt($text), '', "encrypt nothing should return nothing");
+        }
+        is($session->crypt->$decrypt($session->crypt->$encrypt('hi', { providerId => $providerId })), 'hi', 'Roundtrip on string: "hi"');
+        is($session->crypt->$decrypt($session->crypt->$encrypt('', { providerId => $providerId })), '', '..same for empty string');
+        
+        if ($ct->getProviderConfig($providerId)->{salt}) {
+            is( 
+                $session->crypt->$encrypt('hi', { providerId => $providerId }), 
+                $session->crypt->$encrypt('hi', { providerId => $providerId }),
+                'fixed salt, so same encrypted string every time (hello rainbow table attack)'
+            );
+        } else {
+            isnt( 
+                $session->crypt->$encrypt('hi', { providerId => $providerId }), 
+                $session->crypt->$encrypt('hi', { providerId => $providerId }),
+                'random salt, so encrypted string is different every time'
+            );
+        }
     }
 }

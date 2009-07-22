@@ -183,7 +183,7 @@ sub lookupProviderId {
     if (!$providerId) {
         # This is quite normal - most tables will not be using Crypt hence they won't have
         # an entry in the cryptFieldProviders table
-        $self->session->log->warn("ProviderId not found for table: $table, field: $field");
+        $self->session->log->debug("ProviderId not found for table: $table, field: $field");
     }
     
     # Cache the result (including if the provider was not found - see above)
@@ -328,7 +328,15 @@ Parse and return the header
 
 sub parseHeader {
     my ( $self, $ciphertext ) = @_;
-    if ( $ciphertext =~ /CRYPT:(.*?):(.*)/ ) {
+    if ($ciphertext =~ m{
+            \A      # start of string
+            CRYPT:  # CRYPT header start
+            (.*?):  # crypt providerID
+            (.*)    # ciphertext
+            \z      # end of string
+            }xms    # most important is 's' option bc ciphertext could contain newlines (binary)
+        )
+    {
         return ( $1, $2 );
     }
     else {
