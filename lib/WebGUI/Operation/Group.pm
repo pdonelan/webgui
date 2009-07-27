@@ -1114,32 +1114,26 @@ sub www_visualizeGroups {
         return _submenu($session,$i18n->get('group visualization graphviz'),'group visualization');
     }
     
-    # Configurable properties
-    my $shape = $session->form->param('shape') || 'box';
-    my $style = $session->form->param('style') || 'filled';
-    my $format = $session->form->param('format') || 'png';
-    my $layout = $session->form->param('layout') || 'neato';
-    my $overlap = $session->form->param('overlap') || 'false';
-    my $random_start = $session->form->param('random_start') || 1;
-    my $fontsize = $session->form->param('fontsize') || 10;
-    my $bg_color = $session->form->param('bg_color') || 'White';
-    my $group_color = $session->form->param('group_color') || 'CornflowerBlue';
-    my $group_fill_color = $session->form->param('group_fill_color') || 'Beige';
-    my $grouping_color = $session->form->param('grouping_color') || 'Blue';
-    my $show_admin = $session->form->param('show_admin') || 0;
+    my $params = $session->form->paramsHashRef;
     
-    my $filename = "group_visualisation.$format";
-    my $storage = WebGUI::Storage->createTemp($session);
-    $storage->addFileFromScalar($filename);
-    my $path = $storage->getPath($filename);
-
-    my $g = GraphViz->new( 
-        bgcolor => $bg_color, 
-        fontsize => $fontsize, 
-        layout => $layout,
-        overlap => $overlap,
-        random_start => $random_start,
-    );
+    # Specially-handled configurable properties
+    my $format = delete $params->{format} || 'png';
+    my $shape = delete $params->{shape} || 'record';
+    my $style = delete $params->{style} || 'filled';
+    my $group_color = delete $params->{group_color} || 'CornflowerBlue';
+    my $group_fill_color = delete $params->{group_fill_color} || 'Beige';
+    my $grouping_color = delete $params->{grouping_color} || 'Blue';
+    my $show_admin = delete $params->{show_admin} || 0;
+    my $hide_description = delete $params->{hide_description} || 0;
+    
+    # All other params are passed to GraphViz constructor
+    $params->{bgcolor} ||= 'White';
+    $params->{fontsize} ||= 10;
+    $params->{layout} ||= 'neato';
+    $params->{overlap} ||= 'orthoxy';
+    $params->{random_start} = 1 if not defined $params->{random_start};
+    
+    my $g = GraphViz->new( %$params );
     
     my %groups;
     for my $groupId ($session->db->buildArray('select groupId from groups where isEditable = 1')) {
@@ -1148,6 +1142,9 @@ sub www_visualizeGroups {
         my @users = @{$group->getUsers || []};
         my @groupingIds = @{$group->getGroupsFor || []};
         my $label = $group->name . ' (' . @users . ' users)';
+        if (!$hide_description) {
+            $label .= "\n" . $group->description;
+        }
         
         # Skip admins (for clarity)
         next if $groupId eq '3' && !$show_admin;
@@ -1156,7 +1153,7 @@ sub www_visualizeGroups {
         $g->add_node(
             $groupId,
             label     => $label,
-            fontsize  => $fontsize,
+            fontsize  => $params->{fontsize},
             shape     => $shape,
             style     => $style,
             color     => $group_color,
@@ -1167,7 +1164,7 @@ sub www_visualizeGroups {
         for my $groupingId (@groupingIds) {
             $g->add_edge(
                 $groupId => $groupingId,
-                labelfontsize  => $fontsize,
+                labelfontsize  => $params->{fontsize},
                 labelfontcolor => $grouping_color,
                 color          => $grouping_color,
             );
@@ -1175,9 +1172,12 @@ sub www_visualizeGroups {
     }
     
     # Render the image to a file
+    my $filename = "group_visualisation.$format";
+    my $storage = WebGUI::Storage->createTemp($session);
+    $storage->addFileFromScalar($filename);
+    my $path = $storage->getPath($filename);
     my $method = "as_$format";
     $g->$method($path);
-    
     my $url = $storage->getUrl($filename);
 	return _submenu($session, "<img src=$url>" ,'group visualization');
 }
