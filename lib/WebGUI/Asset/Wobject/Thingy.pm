@@ -1503,7 +1503,7 @@ sub view {
         my $thingProperties = $self->getThing($defaultThingId);
         if ($defaultView eq "searchThing"){
             return $i18n->get("no permission to search") if( ! $self->canSearch($defaultThingId, $thingProperties));
-            return $self->search($defaultThingId,$thingProperties);
+            return $self->search($defaultThingId,$thingProperties) 
         }
         elsif ($defaultView eq "addThing"){
             return $i18n->get("no permission to edit") if( ! $self->canEditThingData($defaultThingId, "new", $thingProperties));
