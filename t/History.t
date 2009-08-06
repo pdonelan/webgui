@@ -15,7 +15,7 @@ my $session = WebGUI::Test->session;
 
 #----------------------------------------------------------------------------
 # Tests
-plan tests => 12;
+plan tests => 18;
 
 #----------------------------------------------------------------------------
 # put your tests here
@@ -23,6 +23,8 @@ use_ok('WebGUI::History');
 use_ok('WebGUI::History::Event');
 
 my ($h, $h2, $h3);
+my $user = WebGUI::User->new($session, 'new');
+WebGUI::Test->usersToDelete($user);
 
 #$session->db->write( 'delete from history where historyEventId = ? or historyEventId = ?', [ 'TEST', 'TEST2' ] );
 
@@ -31,7 +33,7 @@ my ($h, $h2, $h3);
 $h = WebGUI::History->create(
     $session,
     {   historyEventId => 'TEST',
-        userId         => 4,
+        userId         => $user->userId,
         data           => { test => 'abc' }
     }
 );
@@ -40,7 +42,7 @@ isa_ok( $h, 'WebGUI::History', 'Created new History object' );
 $h2 = WebGUI::History->create(
     $session,
     {   historyEventId => 'TEST2',
-        userId         => 4,
+        userId         => $user->userId,
         data           => { test => 'def' }
     }
 );
@@ -50,7 +52,7 @@ isa_ok( $h2, 'WebGUI::History', 'Created second History object' );
 # WebGUI::History->get
 
 is( $h->get('historyEventId'), 'TEST', 'get() gives us correct historyEventId' );
-is( $h->get('userId'),         4,      '..and correct userId' );
+is( $h->get('userId'),         $user->userId,      '..and correct userId' );
 is( $h->get('assetId'),         undef,      '..and correct assetId' );
 cmp_deeply( $h->get('data'), { test => 'abc' }, '..and correct (deserialised) data' );
 
@@ -162,9 +164,9 @@ $h->update( { historyEventId => 'TEST' } );    # restore previous value
 
 ###
 # WebGUI::History->mostRecent
-cmp_deeply( WebGUI::History->mostRecent( $session, { userId => 4, historyEventId => 'TEST' } ),
+cmp_deeply( WebGUI::History->mostRecent( $session, { userId => $user->userId, historyEventId => 'TEST' } ),
     $h2, '..but mostRecent only gives us later one' );
-is( WebGUI::History->mostRecent( $session, { userId => 4, historyEventId => 'blah' } ),
+is( WebGUI::History->mostRecent( $session, { userId => $user->userId, historyEventId => 'blah' } ),
     undef, '..and empty set handled correctly' );
 cmp_deeply( WebGUI::History->mostRecent($session), $h2, '..and without options we get same (latest) one' );
 
@@ -185,6 +187,34 @@ cmp_deeply( WebGUI::History->mostRecent($session), $h2, '..and without options w
 #$h3->delete();
 #$h3 = WebGUI::History->add( $session, 4, 'TEST3', { data => { a => 'DUMMY_DATA' } } );
 #cmp_deeply( $h3->get('data'), { a => 'DUMMY_DATA' }, '..data param works too' );
+
+#####
+# Preserve History
+####
+{
+# 
+    is($user->preserveHistory, undef, 'By default, User History disappears when user deleted');
+    ok(WebGUI::History->mostRecent($session, { userId => $user->userId }), 'User has history');
+    $user->delete;
+    is(WebGUI::History->mostRecent($session, { userId => $user->userId }), undef, 'User history now gone');
+
+    # Let's preserve it instead..
+    $user = WebGUI::User->new($session, 'new');
+    WebGUI::Test->usersToDelete($user);
+    my $h = WebGUI::History->create(
+        $session,
+        {   historyEventId => 'TEST',
+            userId         => $user->userId,
+            data           => { test => 'preserve this' }
+        }
+    );
+    ok(WebGUI::History->mostRecent($session, { userId => $user->userId }), 'User has history again');
+    $user->preserveHistory(1);
+    is($user->preserveHistory, 1, 'User now set to preserve history');
+    $user->delete;
+    ok(WebGUI::History->mostRecent($session, { userId => $user->userId }), '..and this time it remains');
+    $h->delete;
+}
 
 END {
     $h->delete()  if $h;

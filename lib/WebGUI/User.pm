@@ -420,6 +420,9 @@ sub delete {
         next BOOK if (my $e = Exception::Class->caught);
         $book->delete;
     }
+    
+    # remove history
+    $db->write('DELETE FROM history where userId = ?', [$userId]) unless $self->preserveHistory;
 
     # remove user itself
     $db->write("DELETE FROM userProfileData WHERE userId=?",[$userId]);
@@ -1127,6 +1130,23 @@ sub newByUsername {
 	return undef if ($user->isVisitor); # visitor is never valid for this method
 	return undef unless $user->username;
 	return $user;
+}
+
+=head2 preserveHistory ( value )
+
+Mutator. By default the user's history disappears when the user is deleted. Setting this flag
+causes the history to not be deleted.
+
+=head3 value (optional)
+
+If provided, the preserveHistory flag is set to this value
+
+=cut
+
+sub preserveHistory {
+    my $self = shift;
+    $self->{_preserveHistory} = shift if @_;
+    return $self->{_preserveHistory};
 }
 
 
