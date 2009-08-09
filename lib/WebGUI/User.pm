@@ -1028,11 +1028,15 @@ A unique ID to use instead of the ID that WebGUI will generate for you. It must 
 
 =cut
 
+use Scalar::Util qw(weaken);
+my %sc;
+
 sub new {
     my $class       = shift;
     my $session     = shift;
     my $userId      = shift || 1;
     my $overrideId  = shift;
+    return $sc{$userId} if $userId ne "new" and $sc{$userId};
     $userId         = _create($session, $overrideId) if ($userId eq "new");
     my $cache       = WebGUI::Cache->new($session,["user",$userId]);
     my $self        = $cache->get || {};
@@ -1068,6 +1072,8 @@ sub new {
         $self->{_profile}   = \%profile,
         $self->cache;
     }
+    $sc{$userId} = $self;
+    weaken($sc{$userId});
     return $self;
 }
 

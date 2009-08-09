@@ -22,7 +22,7 @@ use WebGUI::User;
 use WebGUI::ProfileField;
 use WebGUI::Shop::AddressBook;
 
-use Test::More tests => 224; # increment this value for each test you create
+use Test::More tests => 226; # increment this value for each test you create
 use Test::Deep;
 use Data::Dumper;
 
@@ -1028,6 +1028,25 @@ undef $book;
 eval { $book = WebGUI::Shop::AddressBook->new($session, $bookId); };
 my $e = Exception::Class->caught();
 isa_ok($e, 'WebGUI::Error::ObjectNotFound', '... cleans up the address book');
+
+################################################################
+#
+# Singleton Cache
+#
+################################################################
+{
+    # Create a test user
+    my $u = WebGUI::User->new($session, 'new');
+    $u->profileField('firstName', 'Gary');
+
+    # Re-instantiate user
+    my $u_clone = WebGUI::User->new($session, $u->userId);
+    is($u->profileField('firstName'), $u_clone->profileField('firstName'), 'Original and clone have same value');
+
+    # Modify original object but not cloned object
+    $u->profileField('firstName', 'No Gary No');
+    is($u->profileField('firstName'), $u_clone->profileField('firstName'), 'Clone does not have old value cached');
+}
 
 END {
 
