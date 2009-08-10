@@ -93,7 +93,7 @@ sub createInstance {
     my $pluggin = WebGUI::Pluggable::instanciate(
             $config->{className},
             "new",
-            [  $session, $module ]
+            [  $session, $module, $config ]
     );
         
     #Check to make sure pluggin is a subclass of WebGUI::Account

@@ -51,6 +51,16 @@ readonly module  => my %module;
 
 #-------------------------------------------------------------------
 
+=head2 config ()
+
+Returns the Account module config hash from the config file
+
+=cut
+
+readonly config  => my %config;
+
+#-------------------------------------------------------------------
+
 =head2 method ()
 
 Returns the string representation of the name of the last method called on the module().
@@ -207,6 +217,14 @@ sub displayContent {
     my $content = shift;
     my $noStyle = shift;
     my $session = $self->session;
+
+    # Check if we should bump over to SSL
+    if ( $self->ssl && $session->env->get("HTTPS") ne "on" && !$session->env->get("SSLPROXY") ) {
+        # getUrl already changes url to https if 'encryptPage'
+        $session->http->setRedirect( $self->getUrl );
+        $session->http->sendHeader;
+        return "chunked";
+    }
 
     ##Don't do any templating if we're sending back data like JSON or XML.
     return $content if $self->bare;
@@ -380,8 +398,13 @@ sub getUrl {
     }
 
     $pairs .= ";uid=".$uid if($appendUID && $uid);
-
-    return $session->url->page($pairs);
+    
+    my $url = $session->url->page($pairs);
+    if ( $self->ssl ) {
+        $url = $self->session->url->getSiteURL() . $url;
+        $url =~ s/http:/https:/;
+    }
+    return $url;
 }
 
 #-------------------------------------------------------------------
@@ -417,12 +440,17 @@ A WebGUI::Session object.
 
 The module being called
 
+=head3 config
+
+The full account module config hash from the config file
+
 =cut
 
 sub new {
     my $class         = shift;
     my $session       = shift;
     my $module        = shift;
+    my $config        = shift;
 
     unless (ref $session eq 'WebGUI::Session') {
         WebGUI::Error::InvalidObject->throw(
@@ -441,6 +469,7 @@ sub new {
     $method  { $id      } = "view";
     $uid     { $id      } = undef;
     $bare    { $id      } = 0;
+    $config  { $id      } = $config || {};
 
     return $self;
 }
@@ -528,6 +557,21 @@ sub showError {
     my $templateId          = shift;
     
     return $self->processTemplate($var,$templateId)
+}
+
+#-------------------------------------------------------------------
+
+=head2 ssl ( )
+
+Returns true/false depending on whether this Account module should be displayed over SSL/HTTPS.
+
+To enable this, set the C<ssl> option for the Account module in your site config file.
+
+=cut
+
+sub ssl {
+    my $self = shift;
+    return $self->session->config->get("sslEnabled") && $self->config->{ssl};
 }
 
 #-------------------------------------------------------------------
