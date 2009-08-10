@@ -54,19 +54,6 @@ sub history_crud {
         WebGUI::History->crud_updateTable($session);
         print "DONE\n" unless $quiet;
     }
-
-    use WebGUI::History::Event;
-
-    if ( !$session->db->quickScalar('show tables like "historyEvent"') ) {
-        print "Creating history crud... " unless $quiet;
-        WebGUI::History::Event->crud_createTable($session);
-        print "DONE\n" unless $quiet;
-    }
-    else {
-        print "Updating history crud... " unless $quiet;
-        WebGUI::History::Event->crud_updateTable($session);
-        print "DONE\n" unless $quiet;
-    }
 }
 
 #----------------------------------------------------------------------------
