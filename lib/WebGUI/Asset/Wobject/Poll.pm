@@ -45,35 +45,54 @@ sub definition {
 		tableName=>'Poll',
 		icon=>'poll.gif',
 		className=>'WebGUI::Asset::Wobject::Poll',
+		autoGenerateForms=>1,
 		properties=>{
 			templateId =>{
-				fieldType=>"template",
-				defaultValue=>'PBtmpl0000000000000055'
-				},
+                tab          => 'display',
+				fieldType    => "template",
+				defaultValue => 'PBtmpl0000000000000055',
+                label        => $i18n->get(73),
+                hoverHelp    => $i18n->get('73 description'),
+                namespace    => "Poll",
+            },
 			active=>{
-				fieldType=>"yesNo",
-				defaultValue=>1
-				},
+                tab          => 'properties',
+				fieldType    => "yesNo",
+				defaultValue => 1,
+                label        => $i18n->get(3),
+                hoverHelp    => $i18n->get('3 description'),
+            },
 			karmaPerVote=>{
 				fieldType=>"integer",
-				defaultValue=>0
+				defaultValue=>0,
+                autoGenerate=>0,
 				}, 
 			graphWidth=>{
 				fieldType=>"integer",
-				defaultValue=>150
+				defaultValue=>150,
+                autoGenerate=>0,
 				}, 
 			voteGroup=>{
-				fieldType=>"group",
-				defaultValue=>7
-				}, 
+                tab          => 'security',
+				fieldType    => "group",
+				defaultValue => 7,
+                label        => $i18n->get(4),
+                hoverHelp    => $i18n->get('4 description'),
+            }, 
 			question=>{
-				fieldType=>"text",
-				defaultValue=>undef
-				}, 
+                tab          => 'properties',
+				fieldType    => "text",
+				defaultValue => undef,
+                label        => $i18n->get(6),
+                hoverHelp    => $i18n->get('6 description'),
+            }, 
 			randomizeAnswers=>{
-				defaultValue=>1,
-				fieldType=>"yesNo"
-				},
+                tab          => 'properties',
+				fieldType    => "yesNo",
+				defaultValue => 1,
+                label        => $i18n->get(72),
+                hoverHelp    => $i18n->get('72 description'),
+            },
 			a1=>{
 				fieldType=>"hidden",
 				defaultValue=>undef
@@ -168,6 +187,13 @@ sub definition {
 }
 
 #-------------------------------------------------------------------
+
+=head2 duplicate 
+
+Extend the base method to handle copying Poll answer data.
+
+=cut
+
 sub duplicate {
 	my $self = shift;
 	my $newAsset = $self->SUPER::duplicate(@_);
@@ -197,34 +223,26 @@ sub freezeGraphConfig {
 
 
 #-------------------------------------------------------------------
+
+=head2 getEditForm 
+
+Extend the base class to handle the answers and graphing plugins.
+
+=cut
+
+##TODO: Pull out all form elements which can come from the definition sub
+##and only have hand code in here.
+
 sub getEditForm {
 	my $self = shift;
 	my $tabform = $self->SUPER::getEditForm; 
 	my $i18n = WebGUI::International->new($self->session,"Asset_Poll");
-   	$tabform->getTab("display")->template(
-      		-value=>$self->getValue('templateId'),
-      		-namespace=>"Poll",
-		-label=>$i18n->get(73),
-		-hoverHelp=>$i18n->get('73 description'),
-   		);
-        my ($i, $answers);
-	for ($i=1; $i<=20; $i++) {
-                if ($self->get('a'.$i) =~ /\C/) {
-                        $answers .= $self->getValue("a".$i)."\n";
-                }
+    my ($i, $answers);
+    for ($i=1; $i<=20; $i++) {
+        if ($self->get('a'.$i) =~ /\C/) {
+            $answers .= $self->getValue("a".$i)."\n";
         }
-	$tabform->getTab("security")->yesNo(
-		-name=>"active",
-		-label=>$i18n->get(3),
-		-hoverHelp=>$i18n->get('3 description'),
-		-value=>$self->getValue("active")
-		);
-        $tabform->getTab("security")->group(
-		-name=>"voteGroup",
-		-label=>$i18n->get(4),
-		-hoverHelp=>$i18n->get('4 description'),
-		-value=>[$self->getValue("voteGroup")]
-		);
+    }
 	if ($self->session->setting->get("useKarma")) {
 		$tabform->getTab("properties")->integer(
 			-name=>"karmaPerVote",
@@ -244,24 +262,12 @@ sub getEditForm {
 		-hoverHelp=>$i18n->get('5 description'),
 		-value=>$self->getValue("graphWidth")
 		);
-	$tabform->getTab("properties")->text(
-		-name=>"question",
-		-label=>$i18n->get(6),
-		-hoverHelp=>$i18n->get('6 description'),
-		-value=>$self->getValue("question")
-		);
         $tabform->getTab("properties")->textarea(
 		-name=>"answers",
 		-label=>$i18n->get(7),
 		-hoverHelp=>$i18n->get('7 description'),
 		-subtext=>('<span class="formSubtext"><br />'.$i18n->get(8).'</span>'),
 		-value=>$answers
-		);
-	$tabform->getTab("display")->yesNo(
-		-name=>"randomizeAnswers",
-		-label=>$i18n->get(72),
-		-hoverHelp=>$i18n->get('72 description'),
-		-value=>$self->getValue("randomizeAnswers")
 		);
 	$tabform->getTab("properties")->yesNo(
 		-name=>"resetVotes",
@@ -327,15 +333,29 @@ See WebGUI::Asset::prepareView() for details.
 =cut
 
 sub prepareView {
-	my $self = shift;
-	$self->SUPER::prepareView();
-	my $template = WebGUI::Asset::Template->new($self->session, $self->get("templateId"));
-	$template->prepare($self->getMetaDataAsTemplateVariables);
-	$self->{_viewTemplate} = $template;
+    my $self = shift;
+    $self->SUPER::prepareView();
+    my $template = WebGUI::Asset::Template->new($self->session, $self->get("templateId"));
+    if (!$template) {
+        WebGUI::Error::ObjectNotFound::Template->throw(
+            error      => qq{Template not found},
+            templateId => $self->get("templateId"),
+            assetId    => $self->getId,
+        );
+    }
+    $template->prepare($self->getMetaDataAsTemplateVariables);
+    $self->{_viewTemplate} = $template;
 }
 
 
 #-------------------------------------------------------------------
+
+=head2 processPropertiesFromFormPost 
+
+Extend the base method to handle the answers and the Graphing plugin.
+
+=cut
+
 sub processPropertiesFromFormPost {
 	my $self = shift;
 	$self->SUPER::processPropertiesFromFormPost;
@@ -358,6 +378,13 @@ sub processPropertiesFromFormPost {
 
 
 #-------------------------------------------------------------------
+
+=head2 purge 
+
+Extend the base method to handle Poll answers.
+
+=cut
+
 sub purge {
 	my $self = shift;
 	$self->session->db->write("delete from Poll_answer where assetId=".$self->session->db->quote($self->getId));
@@ -382,13 +409,32 @@ sub setGraphConfig {
 }
 
 #-------------------------------------------------------------------
+
+=head2 setVote ($answer, $userId, $ip)
+
+Accumulates a vote into the database so that it can be counted.
+
+=head3 $answer
+
+The answer selected by the user.
+
+=head3 $userid
+
+The userId of the person who voted.
+
+=head3 $ip
+
+The IP address of the user who voted.
+
+=cut
+
 sub setVote {
-	my $self = shift;
-	my $answer = shift;
-	my $userId = shift;
-	my $ip = shift;
-       	$self->session->db->write("insert into Poll_answer (assetId, answer, userId, ipAddress) values (".$self->session->db->quote($self->getId).", 
-		".$self->session->db->quote($answer).", ".$self->session->db->quote($userId).", '$ip')");
+    my $self = shift;
+    my $answer = shift;
+    my $userId = shift;
+    my $ip = shift;
+    $self->session->db->write("insert into Poll_answer (assetId, answer, userId, ipAddress) values (?,?,?,?)",
+        [$self->getId, $answer, $userId, $ip] );
 }
 
 #----------------------------------------------------------------------------
@@ -408,6 +454,14 @@ sub thawGraphConfig {
 }
 
 #-------------------------------------------------------------------
+
+=head2 view 
+
+Generate the poll results with graph if configured to do so.  Display the form
+for the user to vote.
+
+=cut
+
 sub view {
 	my $self = shift;
 	my (%var, $answer, @answers, $showPoll, $f, @dataset, @labels);
@@ -476,6 +530,14 @@ sub view {
 }
 
 #-------------------------------------------------------------------
+
+=head2 www_vote 
+
+Web method for the user to add their vote.  If so configured, gives karma
+to the user.
+
+=cut
+
 sub www_vote {
 	my $self = shift;
 	my $u;

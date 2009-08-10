@@ -57,12 +57,14 @@ PerlSetVar whatToProfile WebGUI::Asset::Wobject
 use strict;
 use Time::HiRes qw(time);
 use Apache2::Const -compile => qw(OK DECLINED NOT_FOUND);
+use Apache2::Connection;
 use Apache2::ServerUtil;
 use Apache2::Filter;
 use Apache2::FilterRec;
 use Apache2::RequestIO;
 use Apache2::RequestRec;
 use ModPerl::Util;
+use Net::Subnets;
 
 my @subTimes = ();
 my $depth = 0;
@@ -77,12 +79,14 @@ For all other calls, adds profiler output to the file.
 =cut
 
 sub handler {
-	my $r = shift;
+    ##This method does double duty as a ChildInitHandler and as an Output filter.
+    ##therefore we don't know what kind of object we get.
+	my $object = shift;
 	my $callback = ModPerl::Util::current_callback();
 	if($callback eq 'PerlChildInitHandler') {
 		return addProfilerCode();
 	} else {
-		return output($r);
+		return output($object);
 	}
 }
 
@@ -112,9 +116,28 @@ sub addProfilerCode {
 	return Apache2::Const::DECLINED;
 }
 
+
+=head2 output 
+
+Handler that adds the results to the body of the outgoing page.
+
+=cut
+
 sub output {
 	my $f = shift;
 	return Apache2::Const::DECLINED unless($f->r->content_type =~ 'text/html');
+    my $server = Apache2::ServerUtil->server;
+    my $sn = $server->dir_config('ProfileSubnet');
+    my $subnet = [ $sn ];
+    if ($sn) {
+        my $conn = $f->c;
+        my $ipAddress = $conn->remote_ip;
+        my $net = Net::Subnets->new();
+        $net->subnets($subnet);
+        if (!$net->check(\$ipAddress)) {
+            return Apache2::Const::DECLINED;
+        }
+    }
 	while($f->read(my $buffer, 1024)) {
 		my $content .= $buffer;
 		if ($content =~ /(<\/body)/i) {
@@ -499,6 +522,17 @@ sub is_constant {
 	}
 	return $is_const;
 }
+
+
+=head2 sum ($arrRef)
+
+Calculates and returns the sum of the elements in the array reference.
+
+=head3 $arrRef
+
+An array reference.
+
+=cut
 
 sub sum {
 	my $sum = 0;

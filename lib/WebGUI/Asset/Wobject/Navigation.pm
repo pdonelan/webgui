@@ -34,19 +34,21 @@ sub definition {
 		tableName=>'Navigation',
 		className=>'WebGUI::Asset::Wobject::Navigation',
 		properties=>{
-			templateId =>{
-				fieldType=>"template",
-				defaultValue=>'PBtmpl0000000000000048'
-				},
-			mimeType =>{
-				fieldType=>"mimeType",
-				defaultValue=>'text/html'
-				},
-			assetsToInclude=>{
-				fieldType=>'checkList',
-				defaultValue=>"descendants"
-				},
-			startType=>{
+            templateId => {
+                label        => $i18n->get(1096),
+                fieldType    => "template",
+                defaultValue => 'PBtmpl0000000000000048'
+            },
+            mimeType => {
+                label        => $i18n->get('mimeType'),
+                fieldType    => "mimeType",
+                defaultValue => 'text/html'
+            },
+            assetsToInclude => {
+                fieldType    =>'checkList',
+                defaultValue =>"descendants"
+            },
+			startType => {
 				fieldType=>'selectBox',
 				defaultValue=>"relativeToCurrentUrl"
 				},
@@ -62,22 +64,26 @@ sub definition {
 				fieldType=>'selectBox',
 				defaultValue=>55
 				},
-			showSystemPages=>{
-				fieldType=>'yesNo',
-				defaultValue=>0
-				},
-			showHiddenPages=>{
-				fieldType=>'yesNo',
-				defaultValue=>0
-				},
-			showUnprivilegedPages=>{
-				fieldType=>'yesNo',
-				defaultValue=>0
-				},
-			reversePageLoop=>{
-				fieldType=>'yesNo',
-				defaultValue=>0
-				},
+			showSystemPages => {
+                label        => $i18n->get(30),
+				fieldType    => 'yesNo',
+				defaultValue => 0,
+            },
+			showHiddenPages => {
+                label        => $i18n->get(31),
+				fieldType    => 'yesNo',
+				defaultValue => 0,
+            },
+			showUnprivilegedPages => {
+                label        => $i18n->get(32),
+				fieldType    => 'yesNo',
+				defaultValue => 0,
+            },
+			reversePageLoop => {
+                label        => $i18n->get('reverse page loop'),
+				fieldType    => 'yesNo',
+				defaultValue => 0,
+            },
 			}
 		});
         return $class->SUPER::definition($session, $definition);
@@ -352,11 +358,18 @@ Extend the superclass to add metadata and to preprocess the template.
 =cut
 
 sub prepareView {
-	my $self = shift;
-	$self->SUPER::prepareView();
-	my $template = WebGUI::Asset::Template->new($self->session, $self->get("templateId"));
-	$template->prepare($self->getMetaDataAsTemplateVariables);
-	$self->{_viewTemplate} = $template;
+    my $self = shift;
+    $self->SUPER::prepareView();
+    my $template = WebGUI::Asset::Template->new($self->session, $self->get("templateId"));
+    if (!$template) {
+        WebGUI::Error::ObjectNotFound::Template->throw(
+            error      => qq{Template not found},
+            templateId => $self->get("templateId"),
+            assetId    => $self->getId,
+        );
+    }
+    $template->prepare($self->getMetaDataAsTemplateVariables);
+    $self->{_viewTemplate} = $template;
 }
 
 

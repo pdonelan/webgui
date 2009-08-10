@@ -230,6 +230,19 @@ sub definition {
             hoverHelp       =>$i18n->get('max comparisons privileged description'),
             label           =>$i18n->get('max comparisons privileged label'),
         },
+        maxComparisonsGroup=>{
+            fieldType       =>"group",
+            tab             =>"properties",
+            hoverHelp       =>$i18n->get('maxgroup description'),
+            label           =>$i18n->get('maxgroup label'),
+        },
+        maxComparisonsGroupInt=>{
+            fieldType       =>"integer",
+            tab             =>"properties",
+            defaultValue    =>25,
+            hoverHelp       =>$i18n->get('maxgroup per description'),
+            label           =>$i18n->get('maxgroup per label'),
+        },
         groupToAdd=>{
             fieldType       =>"group",
             tab             =>"security",
@@ -259,6 +272,14 @@ sub definition {
             uiLevel         => 8,
             label           => $i18n->get("statistics cache timeout label"),
             hoverHelp       => $i18n->get("statistics cache timeout description")
+        },
+        listingsCacheTimeout => {
+            tab             => "display",
+            fieldType       => "interval",
+            defaultValue    => 3600,
+            uiLevel         => 8,
+            label           => $i18n->get("listings cache timeout label"),
+            hoverHelp       => $i18n->get("listings cache timeout description")
         },
 	);
 	push(@{$definition}, {
@@ -446,6 +467,9 @@ sub getCompareForm {
     if($self->session->user->isVisitor){
         $maxComparisons = $self->get('maxComparisons');
     }
+    elsif($self->session->user->isInGroup( $self->get("maxComparisonsGroup") )) { 
+        $maxComparisons = $self->get('maxComparisonsGroupInt');
+    }
     else{
         $maxComparisons = $self->get('maxComparisonsPrivileged');
     }        
@@ -454,6 +478,78 @@ sub getCompareForm {
         "var matrixUrl = '".$self->getUrl."';\n".
         "\n</script>\n";
     return $form;
+}
+
+#-------------------------------------------------------------------
+
+=head2 getListings  (  )
+
+Returns the listings as an arrayRef of hashRefs.
+
+=head3 sort 
+
+The criterium by which the listings should be sorted.
+
+=cut
+
+sub getListings {
+
+    my $self        = shift;
+    my $session     = $self->session;
+    my $sort        = shift || $session->scratch->get('matrixSort') || $self->get('defaultSort');
+    my $versionTag  = WebGUI::VersionTag->getWorking($session, 1);
+    my ($listings, $listingsEncoded);
+
+    my $noCache =
+        $session->var->isAdminOn
+        || $self->get("listingsCacheTimeout") <= 10
+        || ($versionTag && $versionTag->getId eq $self->get("tagId"));
+    unless ($noCache) {
+        $listingsEncoded = WebGUI::Cache->new($session,"matrixListings_".$self->getId)->get;
+    }
+
+    if ($listingsEncoded){
+        $listings = JSON->new->decode($listingsEncoded);
+    }
+    else{
+        my $sortDirection   = ' desc';
+        if ($sort eq 'title'){
+            $sortDirection = ' asc';
+        }
+
+        my $sql = "
+        select
+            assetData.title,
+            assetData.url,
+            listing.assetId,
+            listing.views,
+            listing.compares,
+            listing.clicks,
+            listing.lastUpdated
+        from asset
+            left join assetData using(assetId)
+            left join MatrixListing as listing on listing.assetId = assetData.assetId and listing.revisionDate =
+assetData.revisionDate
+        where
+            asset.parentId=?
+            and asset.state='published'
+            and asset.className='WebGUI::Asset::MatrixListing'
+            and assetData.revisionDate = (SELECT max(revisionDate) from assetData where assetId=asset.assetId and status='approved')
+            and status='approved'
+        order by ".$sort.$sortDirection;
+    
+        $listings = $session->db->buildArrayRefOfHashRefs($sql,[$self->getId]);
+
+        foreach my $listing (@{$listings}) {
+            $listing->{url}      = $session->url->gateway($listing->{url});
+        }
+
+        $listingsEncoded = JSON->new->encode($listings);
+            WebGUI::Cache->new($session,"matrixListings_".$self->getId)->set(
+                $listingsEncoded,$self->get("listingsCacheTimeout")
+            );
+    }
+    return $listings;
 }
 
 #-------------------------------------------------------------------
@@ -479,12 +575,19 @@ See WebGUI::Asset::prepareView() for details.
 =cut
 
 sub prepareView {
-	my $self = shift;
+    my $self = shift;
 
-	$self->SUPER::prepareView();
-	my $template = WebGUI::Asset::Template->new($self->session, $self->get("templateId"));
-	$template->prepare;
-	$self->{_viewTemplate} = $template;
+    $self->SUPER::prepareView();
+    my $template = WebGUI::Asset::Template->new($self->session, $self->get("templateId"));
+    if (!$template) {
+        WebGUI::Error::ObjectNotFound::Template->throw(
+            error      => qq{Template not found},
+            templateId => $self->get("templateId"),
+            assetId    => $self->getId,
+        );
+    }
+    $template->prepare;
+    $self->{_viewTemplate} = $template;
 
     return undef;
 }
@@ -539,17 +642,28 @@ sub view {
     'text/javascript'});
     $self->session->style->setScript($self->session->url->extras('yui/build/button/button-min.js'), {type =>
     'text/javascript'});
-    $self->session->style->setScript($self->session->url->extras('wobject/Matrix/matrix.js'), {type =>
-    'text/javascript'});
     
     my ($varStatistics,$varStatisticsEncoded);
 	my $var = $self->get;
+    $var->{listing_loop}            = $self->getListings;
     $var->{isLoggedIn}              = ($self->session->user->userId ne "1");
     $var->{addMatrixListing_url}    = $self->getUrl('func=add;class=WebGUI::Asset::MatrixListing'); 
-    $var->{compareForm}             = $self->getCompareForm;
     $var->{exportAttributes_url}    = $self->getUrl('func=exportAttributes');
     $var->{listAttributes_url}      = $self->getUrl('func=listAttributes');
     $var->{search_url}              = $self->getUrl('func=search');
+    $var->{matrix_url}              = $self->getUrl();
+
+    my $maxComparisons;
+    if($self->session->user->isVisitor){
+        $maxComparisons = $self->get('maxComparisons');
+    }
+    elsif($self->session->user->isInGroup( $self->get("maxComparisonsGroup") )) {
+        $maxComparisons = $self->get('maxComparisonsGroupInt');
+    }
+    else{
+        $maxComparisons = $self->get('maxComparisonsPrivileged');
+    }
+    $var->{maxComparisons} = $maxComparisons;
    
     if ($self->canEdit){
         # Get all the MatrixListings that are still pending.
@@ -656,7 +770,9 @@ sub view {
             assetData.title as productName,
             assetData.url,
             rating.listingId, 
-            rating.meanValue, 
+            rating.meanValue,
+            rating.medianValue,
+            rating.countValue, 
             asset.parentId 
         from 
             MatrixListing_ratingSummary as rating 
@@ -766,10 +882,8 @@ sub www_compare {
     {type =>'text/javascript'});
     $self->session->style->setScript($self->session->url->extras('yui/build/button/button-min.js'),
     {type =>'text/javascript'});
-    $self->session->style->setScript($self->session->url->extras('wobject/Matrix/matrixCompareList.js'), {type =>
-    'text/javascript'});
-    $self->session->style->setScript($self->session->url->extras('wobject/Matrix/matrix.js'), {type =>
-    'text/javascript'});
+    $self->session->style->setScript($self->session->url->extras('yui/build/container/container-min.js'),
+    {type =>'text/javascript'});
     $self->session->style->setLink($self->session->url->extras('yui/build/datatable/assets/skins/sam/datatable.css'),
         {type =>'text/css', rel=>'stylesheet'});
     $self->session->style->setScript($self->session->url->extras('hoverhelp.js'), {type =>
@@ -781,6 +895,9 @@ sub www_compare {
     if($self->session->user->isVisitor){
         $maxComparisons = $self->get('maxComparisons');
     }
+    elsif($self->session->user->isInGroup( $self->get("maxComparisonsGroup") )) { 
+        $maxComparisons = $self->get('maxComparisonsGroupInt');
+    }
     else{
         $maxComparisons = $self->get('maxComparisonsPrivileged');
     }
@@ -790,13 +907,12 @@ sub www_compare {
         $listingId_safe =~ s/-/_____/g;
         push(@responseFields, $listingId_safe, $listingId_safe."_compareColor");
     }
-    
-    $var->{javascript} = "<script type='text/javascript'>\n".
-        'var listingIds = new Array('.join(", ",map {'"'.$_.'"'} @listingIds).");\n".
-        'var responseFields = new Array("attributeId", "name", "description","fieldType", "checked", '.join(", ",map {'"'.$_.'"'} @responseFields).");\n".
-        "var maxComparisons = ".$maxComparisons.";\n".
-        "var matrixUrl = '".$self->getUrl."';\n".
-        "</script>";
+
+    $var->{maxComparisons}  = $maxComparisons;
+    $var->{matrixUrl}       = $self->getUrl;
+    $var->{listingIds}      = join(", ",map {'"'.$_.'"'} @listingIds);
+    $var->{responseFields}  = '"attributeId", "name", "description","fieldType", "checked", '
+                              .join(", ",map{'"'.$_.'"'} @responseFields);
 
     return $self->processStyle($self->processTemplate($var,$self->get("compareTemplateId")));
 }
@@ -1053,32 +1169,10 @@ sub www_getCompareFormData {
         @searchParams_sorted    = sort { $b->{value} <=> $a->{value} } @searchParams;
     }
 
-    my $sql = "
-        select
-            assetData.title,
-            assetData.url,
-            listing.assetId,
-            listing.views,
-            listing.compares,
-            listing.clicks,
-            listing.lastUpdated
-        from asset
-            left join assetData using(assetId)
-            left join MatrixListing as listing on listing.assetId = assetData.assetId and listing.revisionDate =
-assetData.revisionDate
-        where
-            asset.parentId=?
-            and asset.state='published'
-            and asset.className='WebGUI::Asset::MatrixListing'
-            and assetData.revisionDate = (SELECT max(revisionDate) from assetData where assetId=asset.assetId and status='approved')
-            and status='approved'
-        order by ".$sort.$sortDirection;
-    
-    my $sth = $session->db->read($sql,[$self->getId]);
     my @results;
-
     if($form->process("search")){
-        while (my $result = $sth->hashRef) {
+        if ($searchParamList){
+            foreach my $result (@{$self->getListings}) {
                 my $matrixListing_attributes = $session->db->buildHashRefOfHashRefs("
                             select value, fieldType, attributeId from Matrix_attribute
                             left join MatrixListing_attribute as listing using(attributeId)
@@ -1100,21 +1194,26 @@ assetData.revisionDate
                             $result->{checked} = 'checked';
                         }
                 }
-            $result->{assetId}  =~ s/-/_____/g;
-            $result->{url}      = $session->url->gateway($result->{url});
-            push @results, $result;
+                $result->{assetId}  =~ s/-/_____/g;
+                push @results, $result;
+            }
+        }
+        else{   
+            foreach my $result (@{$self->getListings}) {
+                $result->{checked} = 'checked';
+                $result->{assetId}  =~ s/-/_____/g;
+                push @results, $result;
+            }
         }
     }else{
-        while (my $result = $sth->hashRef) {
+        foreach my $result (@{$self->getListings}) {
             $result->{assetId}  =~ s/-/_____/g;
             if(WebGUI::Utility::isIn($result->{assetId},@listingIds)){
                 $result->{checked} = 'checked';
             }
-            $result->{url}      = $session->url->gateway($result->{url});
             push @results, $result;
         }
     }
-    $sth->finish;
 
     my $jsonOutput;
     $jsonOutput->{ResultSet} = {Result=>\@results};
@@ -1139,12 +1238,15 @@ An array of listingIds that should be shown in the compare list datatable.
 sub www_getCompareListData {
 
     my $self        = shift;
-    my @listingIds  = @_;
+    my $listingIds  = shift;
     my $session     = $self->session;
     my $i18n        = WebGUI::International->new($session,'Asset_Matrix');
-    my (@results,@columnDefs);
+    my (@results,@columnDefs,@listingIds);
 
-    unless (scalar(@listingIds)) {
+    if ($listingIds) {
+        @listingIds = @{$listingIds};
+    }
+    else{
         @listingIds = $self->session->form->checkList("listingId");
     }
     my @responseFields = ("attributeId", "name", "description","fieldType", "checked");
@@ -1160,7 +1262,7 @@ sub www_getCompareListData {
             label       =>$listing->get('title').' '.$listing->get('version'),
             formatter   =>"formatColors",
             url         =>$listing->getUrl,
-            lastUpdated =>$session->datetime->epochToHuman( $listing->get('revisonDate'),"%z" ),
+            lastUpdated =>$session->datetime->epochToHuman( $listing->get('lastUpdated'),"%z" ),
         });
         push(@responseFields, $listingId_safe, $listingId_safe."_compareColor");
     }
@@ -1293,8 +1395,6 @@ sub www_search {
     {type =>'text/javascript'});
     $self->session->style->setScript($self->session->url->extras('yui/build/button/button-min.js'),
     {type =>'text/javascript'});
-    $self->session->style->setScript($self->session->url->extras('wobject/Matrix/matrixSearch.js'), {type =>
-    'text/javascript'});
     $self->session->style->setLink($self->session->url->extras('yui/build/datatable/assets/skins/sam/datatable.css'),
         {type =>'text/css', rel=>'stylesheet'});
 

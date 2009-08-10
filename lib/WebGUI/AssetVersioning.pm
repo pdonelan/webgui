@@ -144,6 +144,9 @@ sub addRevision {
 	# merge the defaults, current values, and the user set properties
 	my %mergedProperties = (%defaults, %{$self->get}, %{$properties}, (status => 'pending'));
     
+    # Force the packed head block to be regenerated
+    delete $mergedProperties{extraHeadTagsPacked};
+
     #Instantiate new revision and fill with real data
     my $newVersion = WebGUI::Asset->new($self->session,$self->getId, $self->get("className"), $now);
     $newVersion->setSkipNotification if ($options->{skipNotification});
@@ -223,7 +226,7 @@ sub getCurrentRevisionDate  {
     my $class = shift;
     my $session = shift;
     my $assetId = shift;
-	my $assetRevision = $session->stow->get("assetRevision");
+	my $assetRevision = $session->stow->get("assetRevision",{noclone=>1});
 	my $revisionDate = $assetRevision->{$assetId}{$session->scratch->get("versionTag")||'_'};
 	unless ($revisionDate) {
 		($revisionDate) = $session->db->quickArray("select max(revisionDate) from assetData where assetId=? and
@@ -372,6 +375,41 @@ sub purgeRevision {
 
 #-------------------------------------------------------------------
 
+=head2 moveAssetToVersionTag ( tag )
+
+=head3 moveToTag
+
+Migrate the current asset to the designated version tag
+
+=cut
+
+sub moveAssetToVersionTag {
+    my ( $self, $moveToTag ) = @_;
+
+    # Determine if we were passed a version tagId or a VersionTag Class and act appropriately
+    #
+    my $moveToTagId = $moveToTag;
+    if ( ref($moveToTag) eq "WebGUI::VersionTag" ) {
+        $moveToTagId = $moveToTag->get('tagId');
+    }
+    else {
+        $moveToTag = WebGUI::VersionTag->new( $self->session, $moveToTagId );
+    }
+
+    my $tag = WebGUI::VersionTag->new( $self->session, $self->get('tagId') );
+
+    $self->setVersionTag($moveToTagId);
+
+    my $versionTag = $self->session->db->quickScalar("SELECT tagId FROM assetData WHERE assetId=? AND revisionDate=?",[$self->getId,$self->get('revisionDate')]);
+    
+    # If no revisions remain, delete the version tag
+    if ( $tag->getRevisionCount <= 0 ) {
+        $tag->rollback;
+    }
+} ## end sub moveAssetToVersionTag
+
+#-------------------------------------------------------------------
+
 =head2 requestAutoCommit ( )
 
 Requests an autocommit tag be commited. See also getAutoCommitWorkflowId() and setAutoCommitTag().
@@ -379,13 +417,29 @@ Requests an autocommit tag be commited. See also getAutoCommitWorkflowId() and s
 =cut
 
 sub requestAutoCommit {
-	my $self = shift;
-	my $tag = $self->{_autoCommitTag};
-	if (defined $tag) {
-		$tag->requestCommit;
-		delete $self->{_autoCommitTag};
-	}
-}
+    my $self = shift;
+
+    my $parentAsset;
+    if ( not defined( $parentAsset = $self->getParent ) ) {
+        $parentAsset = WebGUI::Asset->newPending( $self->session, $self->get('parentId') );
+    }
+    unless ( $parentAsset->hasBeenCommitted ) {
+        my $tagId = $parentAsset->get('tagId');
+
+        if ($tagId) {
+            if ( $tagId ne $self->get('tagId') ) {
+                $self->moveAssetToVersionTag($tagId);
+                return;
+            }
+        }
+    }
+
+    my $tag = $self->{_autoCommitTag};
+    if ( defined $tag ) {
+        $tag->requestCommit;
+        delete $self->{_autoCommitTag};
+    }
+} ## end sub requestAutoCommit
 
 
 #-------------------------------------------------------------------
@@ -428,10 +482,11 @@ Sets the versioning lock to "on" so that this piece of content may not be edited
 =cut
 
 sub setVersionLock {
-	my $self = shift;
-	$self->session->db->write("update asset set isLockedBy=? where assetId=?", [$self->session->user->userId, $self->getId]);
-	$self->updateHistory("locked");
-	$self->purgeCache;
+    my $self = shift;
+    $self->session->db->write("update asset set isLockedBy=? where assetId=?", [$self->session->user->userId, $self->getId]);
+    $self->{_properties}{isLockedBy} = $self->session->user->userId;
+    $self->updateHistory("locked");
+    $self->purgeCache;
 }
 
 #-------------------------------------------------------------------
@@ -450,6 +505,7 @@ sub setVersionTag {
 	my $self = shift;
     my $tagId = shift;
     $self->session->db->write("update assetData set tagId=? where assetId=? and tagId = ?", [$tagId, $self->getId,$self->get('tagId')]);
+        $self->{_properties}{tagId} = $tagId;
 	$self->updateHistory("changed version tag to $tagId");
 	$self->purgeCache;
 }
@@ -479,10 +535,11 @@ Sets the versioning lock to "off" so that this piece of content may be edited on
 =cut
 
 sub unsetVersionLock {
-	my $self = shift;
-	$self->session->db->write("update asset set isLockedBy=NULL where assetId=".$self->session->db->quote($self->getId));
-	$self->updateHistory("unlocked");
-	$self->purgeCache;
+    my $self = shift;
+    $self->session->db->write("update asset set isLockedBy=NULL where assetId=?",[$self->getId]);
+    $self->{_properties}{isLockedBy} = undef;
+    $self->updateHistory("unlocked");
+    $self->purgeCache;
 }
 
 

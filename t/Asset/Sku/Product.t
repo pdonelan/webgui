@@ -19,6 +19,8 @@ use lib "$FindBin::Bin/../../lib";
 
 use Test::More;
 use Test::Deep;
+use Data::Dumper;
+use HTML::Form;
 
 use WebGUI::Test; # Must use this before any other WebGUI modules
 use WebGUI::Session;
@@ -34,7 +36,7 @@ my $session         = WebGUI::Test->session;
 #----------------------------------------------------------------------------
 # Tests
 
-plan tests => 8;        # Increment this number for each test you create
+plan tests => 12;        # Increment this number for each test you create
 
 #----------------------------------------------------------------------------
 # put your tests here
@@ -50,6 +52,8 @@ is($product->getThumbnailUrl(), '', 'Product with no image1 property returns the
 my $image = WebGUI::Storage->create($session);
 WebGUI::Test->storagesToDelete($image);
 $image->addFileFromFilesystem(WebGUI::Test->getTestCollateralPath('lamp.jpg'));
+
+WebGUI::Test->tagsToRollback(WebGUI::VersionTag->getWorking($session));
 
 my $imagedProduct = $node->addChild({
     className          => "WebGUI::Asset::Sku::Product",
@@ -81,16 +85,38 @@ my $englishVarId = $imagedProduct->setCollateral('variantsJSON', 'variantId', 'n
     }
 );
 
-use Data::Dumper;
+my $otherVarId = $imagedProduct->setCollateral('variantsJSON', 'variantId', 'new',
+    {
+        shortdesc => 'Elbonian',
+        varSku    => 'Elbonian-bible',
+        price     => 11,
+        weight    => 7,
+        quantity  => 0,
+    }
+);
+
 $imagedProduct->applyOptions($imagedProduct->getCollateral('variantsJSON', 'variantId', $englishVarId));
 
 is($imagedProduct->getConfiguredTitle, 'Bible - English', 'getConfiguredTitle is overridden and concatenates the Product Title and the variant shortdesc');
 
-#----------------------------------------------------------------------------
-# Cleanup
-END {
-    $product->purge;
-    $imagedProduct->purge;
-}
+my $addToCartForm = $imagedProduct->getAddToCartForm();
+my @forms = HTML::Form->parse($addToCartForm, 'http://www.webgui.org');
+is(scalar @forms, 1, 'getAddToCartForm: returns only 1 form');
+my $form_variants = $forms[0]->find_input('vid');
+cmp_deeply(
+    [ $englishVarId ],
+    [ $form_variants->possible_values ],
+    '... form only has 1 variant, since the other one has 0 quantity'
+);
 
-1;
+####################################################
+#
+# addRevision
+#
+####################################################
+
+sleep 2;
+my $newImagedProduct = $imagedProduct->addRevision({title => 'Bible and hammer'});
+
+like($newImagedProduct->get('image1'), $session->id->getValidator, 'addRevision: new product rev got an image1 storage location');
+isnt($newImagedProduct->get('image1'), $imagedProduct->get('image1'), '... and it is not the same as the old one');

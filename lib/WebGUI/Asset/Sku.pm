@@ -56,7 +56,8 @@ These methods are available from this class:
 
 =head2 addToCart ( options ) 
 
-Adds this sku to the current session's cart.
+Adds this sku to the current session's cart.  Returns a copy of the Shop::Cart::Item
+object added to the cart.
 
 =head3 options
 
@@ -137,6 +138,13 @@ sub definition {
             fieldType       => 'hidden',
             defaultValue    => '{}',
         },
+        shipsSeparately => {
+            tab             => 'shop',
+            fieldType       => 'yesNo',
+            defaultValue    => 0,
+            label           => $i18n->get('shipsSeparately'),
+            hoverHelp       => $i18n->get('shipsSeparately help'),
+        },
 	);
 	push(@{$definition}, {
 		assetName=>$i18n->get('assetName'),
@@ -198,14 +206,18 @@ sub getConfiguredTitle {
 }
 
 #-------------------------------------------------------------------
+
+=head2 getEditForm ( )
+
+Extends the base class to add Tax information for the Sku, in a new tab.
+
+=cut
+
 sub getEditForm {
     my $self    = shift;
     my $session = $self->session;
 
     my $tabform = $self->SUPER::getEditForm;
-    
-    # Let the tax system add the form fields that are required by the active tax plugin for configuring the sku tax.
-    # WebGUI::Shop::Tax->new( $session )->appendSkuForm( $self->getId, $tabform->getTab('shop') );
 
     my $taxDriver   = WebGUI::Shop::Tax->getDriver( $session );
     my $definition  = $taxDriver->skuFormDefinition;
@@ -320,6 +332,18 @@ sub getRecurInterval {
 }
 
 #-------------------------------------------------------------------
+
+=head2 getTaxConfiguration ( $namespace )
+
+Returns the tax configuration data for the Shop from the JSON blob for this Sku.
+
+=head3 $namespace
+
+The class name of a tax driver.  Configuration data for that driver will be
+returned.
+
+=cut
+
 sub getTaxConfiguration {
     my $self        = shift;
     my $namespace   = shift;
@@ -330,7 +354,7 @@ sub getTaxConfiguration {
         return undef;
     }
 
-    return $configs->{ $namespace }
+    return $configs->{ $namespace };
 }
 
 #-------------------------------------------------------------------
@@ -562,6 +586,13 @@ sub onRemoveFromCart {
 }
 
 #-------------------------------------------------------------------
+
+=head2 processPropertiesFromFormPost ( )
+
+Extends the base class to process the tax data.
+
+=cut
+
 sub processPropertiesFromFormPost {
     my $self = shift;
 
@@ -594,6 +625,15 @@ sub processStyle {
 }
 
 #-------------------------------------------------------------------
+
+=head2 setTaxConfiguration ($namespace, $configuration)
+
+=head3 $namespace
+
+=head3 $configuration
+
+=cut
+
 sub setTaxConfiguration {
     my $self            = shift;
     my $namespace       = shift;
@@ -614,6 +654,22 @@ sub setTaxConfiguration {
         taxConfiguration    => to_json( $configs ),
     } );
 }
+
+#-------------------------------------------------------------------
+
+=head2 shipsSeparately
+
+Returns a boolean indicating whether this item must be shipped separately from other items.
+If the shipsSeparately property is true, but isShippingRequired is false, this will return
+false.
+
+=cut
+
+sub shipsSeparately {
+    my ($self) = @_;
+    return $self->isShippingRequired && $self->get('shipsSeparately');
+}
+
 
 #-------------------------------------------------------------------
 

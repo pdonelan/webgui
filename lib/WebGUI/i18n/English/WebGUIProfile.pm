@@ -426,6 +426,19 @@ If you wish to set the Default Value for any other field.  Create the field with
         message => q|Select an encryption provider to encrypt this field or leave as None for no encryption. This should only be used for text like fields.|,
         lastUpdated => 1247347676,
     }, 
+
+    'default privacy setting label' => {
+        message => q|Default Privacy Setting|,
+        lastUpdated => 0,
+        context => q|Label for a profile field property on the Edit User Profile Field screen.|,
+    },
+
+    'default privacy setting description' => {
+        message => q|Select the default privacy setting for this profile field. This will be used when a new user is created.|,
+        lastUpdated => 0,
+        context => q|Description for a profile field property, used as hoverhelp on the Edit User Profile Field screen.|,
+    },
+
 };
 
 1;

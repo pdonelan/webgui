@@ -120,6 +120,13 @@ sub addRevision {
 }
 
 #-------------------------------------------------------------------
+
+=head2 canAdd 
+
+Extend the master class to make the default group 7.
+
+=cut
+
 sub canAdd {
 	my $class = shift;
 	my $session = shift;
@@ -127,6 +134,24 @@ sub canAdd {
 }
 
 #-------------------------------------------------------------------
+
+=head2 canEdit ($userId)
+
+If adding new posts, the check the parent's canPost method.
+
+If the user made this post, then check the editTimeout.
+
+Anyone in groupToEditPost is allowed to edit any post.
+
+Otherwise, anyone who canEdit the parent collaboration system can edit a post.
+
+=head3 $userId
+
+The userId of the user to check for permissions.  If not passed, then it will
+use the session user instead.
+
+=cut
+
 sub canEdit {
     my $self    = shift;
     my $userId  = shift || $self->session->user->userId;
@@ -189,11 +214,18 @@ Cuts a title string off at 30 characters.
 =cut
 
 sub chopTitle {
-	my $self = shift;
-        return substr($self->get("title"),0,30);
+    my $self = shift;
+    return substr($self->get("title"),0,30);
 }
 
 #-------------------------------------------------------------------
+
+=head2 commit 
+
+Extends the master class to notify subscribers, handle karmaPerPost, and 
+increment replies for the parent thread.
+
+=cut
 
 sub commit {
 	my $self = shift;
@@ -211,6 +243,14 @@ sub commit {
 }
 
 #-------------------------------------------------------------------
+
+=head2 cut 
+
+Extend the master method to handle changing adjusting the number of replies to
+the parent thread.
+
+=cut
+
 sub cut {
     my $self = shift;
 
@@ -312,6 +352,13 @@ sub definition {
 
 
 #-------------------------------------------------------------------
+
+=head2 DESTROY 
+
+Extend the base method to delete the locally cached thread object.
+
+=cut
+
 sub DESTROY {
 	my $self = shift;
 	$self->{_thread}->DESTROY if (exists $self->{_thread} && ref $self->{_thread} =~ /Thread/);
@@ -323,7 +370,7 @@ sub DESTROY {
 
 =head2 exportAssetData ( )
 
-See WebGUI::AssetPackage::exportAssetData() for details.
+Extend the base class to handle storage locations.
 
 =cut
 
@@ -374,7 +421,12 @@ sub formatContent {
 	my $self = shift;
 	my $content = shift || $self->get("content");
 	my $contentType = shift || $self->get("contentType");	
-        my $msg = WebGUI::HTML::filter($content,$self->getThread->getParent->get("filterCode"));
+        my $msg = undef ;
+	if (!$self->isa("WebGUI::Asset::Post::Thread")) { # apply appropriate content filter
+		$msg = WebGUI::HTML::filter($content,$self->getThread->getParent->get("replyFilterCode"));
+	} else {
+		$msg = WebGUI::HTML::filter($content,$self->getThread->getParent->get("filterCode"));
+	}
         $msg = WebGUI::HTML::format($msg, $contentType);
         if ($self->getThread->getParent->get("useContentFilter")) {
                 $msg = WebGUI::HTML::processReplacements($self->session,$msg);
@@ -383,6 +435,13 @@ sub formatContent {
 }
 
 #-------------------------------------------------------------------
+
+=head2 getAutoCommitWorkflowId 
+
+Overide the master method to return the workflow stored in the parent collaboration system.
+
+=cut
+
 sub getAutoCommitWorkflowId {
     my $self = shift;
     my $cs = $self->getThread->getParent;
@@ -451,6 +510,14 @@ sub getEditUrl {
 
 
 #-------------------------------------------------------------------
+
+=head2 getImageUrl 
+
+Returns a URL to the first image stored in the storage location for this Post.  If there
+are not stored files, it returns undef.
+
+=cut
+
 sub getImageUrl {
 	my $self = shift;
 	return undef if ($self->get("storageId") eq "");
@@ -516,6 +583,13 @@ sub getReplyUrl {
 }
 
 #-------------------------------------------------------------------
+
+=head2 getStatus 
+
+Returns the status of this Post, 'approved', 'pending', or 'archived'.
+
+=cut
+
 sub getStatus {
 	my $self = shift;
 	my $status = $self->get("status");
@@ -530,6 +604,14 @@ sub getStatus {
 }
 
 #-------------------------------------------------------------------
+
+=head2 getStorageLocation 
+
+Returns a storage location for this Post.  If one does not exist, it
+creates one.
+
+=cut
+
 sub getStorageLocation {
 	my $self = shift;
 	unless (exists $self->{_storageLocation}) {
@@ -544,6 +626,25 @@ sub getStorageLocation {
 }
 
 #-------------------------------------------------------------------
+
+=head2 getSynopsisAndContent ($synopsis, $body)
+
+Returns a synopsis taken from the body of the Post, based on either the separator
+macro, the first html paragraph, or the first physical line of text as defined by
+newlines.
+
+Returns both the synopsis, and the original body content.
+
+=head3 $synopsis
+
+If passed in, it returns that instead of the calculated synopsis.
+
+=head3 $body
+
+Body of the Post to use a source for the synopsis.
+
+=cut
+
 sub getSynopsisAndContent {
 	my $self = shift;
 	my $synopsis = shift;
@@ -566,6 +667,17 @@ sub getSynopsisAndContent {
 }
 
 #-------------------------------------------------------------------
+
+=head2 getTemplateMetadataVars ( $var )
+
+Append metadata as template variables.
+
+=head3 $var
+
+A hash reference.  The template variables will be added to that hash ref.
+
+=cut
+
 sub getTemplateMetadataVars {
 	my $self = shift;
     my $var  = shift;
@@ -588,13 +700,22 @@ sub getTemplateMetadataVars {
 }
 
 #-------------------------------------------------------------------
+
+=head2 getTemplateVars 
+
+Returns a hash reference of template variables for this Post.
+
+=cut
+
 sub getTemplateVars {
-	my $self = shift;
-	my %var = %{$self->get};
+	my $self    = shift;
+    my $session = $self->session;
+	my %var     = %{$self->get};
+    my $postUser   = WebGUI::User->new($session, $self->get("ownerUserId"));
 	$var{"userId"} = $self->get("ownerUserId");
 	$var{"user.isPoster"} = $self->isPoster;
-	$var{"avatar.url"} = $self->getAvatarUrl;
-	$var{"userProfile.url"} = $self->getUrl("op=viewProfile;uid=".$self->get("ownerUserId"));
+	$var{"avatar.url"}    = $self->getAvatarUrl;
+	$var{"userProfile.url"} = $postUser->getProfileUrl($self->getUrl());
 	$var{"dateSubmitted.human"} =$self->session->datetime->epochToHuman($self->get("creationDate"));
 	$var{"dateUpdated.human"} =$self->session->datetime->epochToHuman($self->get("revisionDate"));
 	$var{'title.short'} = $self->chopTitle;
@@ -666,6 +787,14 @@ sub getThread {
 }
 
 #-------------------------------------------------------------------
+
+=head2 getThumbnailUrl 
+
+If this Post has a storage location, returns a URL to the thumbnail of the first image that
+is stored in it.  Otherwise, it returns undef.
+
+=cut
+
 sub getThumbnailUrl {
 	my $self = shift;
 	return undef if ($self->get("storageId") eq "");
@@ -888,6 +1017,13 @@ sub notifySubscribers {
 }
 
 #-------------------------------------------------------------------
+
+=head2 paste 
+
+Extends the master method to handle incrementing replies.
+
+=cut
+
 sub paste {
     my $self = shift;
 
@@ -926,6 +1062,14 @@ sub paste {
 }
 
 #-------------------------------------------------------------------
+
+=head2 processPropertiesFromFormPost 
+
+Extend the base method to handle archiving and unarchiving, making sticky and
+non-sticky, locking and unlocking posts.  Calls postProcess when it is done.
+
+=cut
+
 sub processPropertiesFromFormPost {
 	my $self = shift;
 	$self->SUPER::processPropertiesFromFormPost;	
@@ -962,6 +1106,13 @@ sub processPropertiesFromFormPost {
 
 
 #-------------------------------------------------------------------
+
+=head2 postProcess 
+
+Catchall method for spam processing, adjusting thumbnail sizes, setting the synopsis,
+adding edit stamp to posts and setting the size.
+
+=cut
 
 sub postProcess {
 	my $self = shift;
@@ -1008,6 +1159,12 @@ sub postProcess {
 
 #-------------------------------------------------------------------
 
+=head2 purge 
+
+Extend the base method to handle cleaning up storage locations.
+
+=cut
+
 sub purge {
         my $self = shift;
         my $sth = $self->session->db->read("select storageId from Post where assetId=".$self->session->db->quote($self->getId));
@@ -1023,7 +1180,7 @@ sub purge {
 
 =head2 purgeCache ( )
 
-See WebGUI::Asset::purgeCache() for details.
+Extend the base class to handle caching.
 
 =cut
 
@@ -1035,10 +1192,16 @@ sub purgeCache {
 
 #-------------------------------------------------------------------
 
+=head2 purgeRevision 
+
+Extend the base method to handle deleting the storage location.
+
+=cut
+
 sub purgeRevision {
-        my $self = shift;
-        $self->getStorageLocation->delete;
-        return $self->SUPER::purgeRevision;
+    my $self = shift;
+    $self->getStorageLocation->delete;
+    return $self->SUPER::purgeRevision;
 }
 
 
@@ -1087,6 +1250,17 @@ sub recalculatePostRating {
 }
 
 #-------------------------------------------------------------------
+
+=head2 rethreadUnder ($thread)
+
+Update the Post's threadId property with a new thread.
+
+=head3 $thread
+
+The new thread.
+
+=cut
+
 sub rethreadUnder {
 	my $self = shift;
 	my $thread = shift;
@@ -1197,6 +1371,13 @@ sub update {
 }
 
 #-------------------------------------------------------------------
+
+=head2 prepareView 
+
+Extend the base method to also prepare the Thread containing this Post.
+
+=cut
+
 sub prepareView {
 	my $self = shift;
 	$self->SUPER::prepareView;
@@ -1206,6 +1387,15 @@ sub prepareView {
 	}
 }
 
+#-------------------------------------------------------------------
+
+=head2 view 
+
+Increment the number of views for this Post, and then display the Thread containing
+this Post.
+
+=cut
+
 sub view {
 	my $self = shift;
 	$self->incrementViews;
@@ -1214,6 +1404,13 @@ sub view {
 
 
 #-------------------------------------------------------------------
+
+=head2 www_deleteFile 
+
+Deletes the file given by the form variable C<filename> from this asset's storage location.
+
+=cut
+
 sub www_deleteFile {
 	my $self = shift;
 	$self->getStorageLocation->deleteFile($self->session->form->process("filename")) if $self->canEdit;
@@ -1222,6 +1419,13 @@ sub www_deleteFile {
 
 
 #-------------------------------------------------------------------
+
+=head2 www_edit 
+
+Renders a template form for adding and editing posts.
+
+=cut
+
 sub www_edit {
 	my $self      = shift;
     my $session   = $self->session;
@@ -1422,7 +1626,9 @@ sub www_edit {
 	$var{'content.form'} = WebGUI::Form::HTMLArea($session, {
         name=>"content",
         value=>$content,
-        richEditId=>$self->getThread->getParent->get("richEditor")
+        richEditId=>($self->isa("WebGUI::Asset::Post::Thread") ? 
+	  $self->getThread->getParent->get("richEditor") :
+ 	  $self->getThread->getParent->get("replyRichEditor")),
     });
     ##Edit variables just for Threads
     if ($className eq 'WebGUI::Asset::Post::Thread' && $self->getThread->getParent->canEdit) {
@@ -1466,32 +1672,19 @@ sub www_edit {
         my @meta_loop = ();
         foreach my $field (keys %{ $meta }) {
             my $fieldType = $meta->{$field}{fieldType} || "Text";
-            my %options;
-            tie %options, 'Tie::IxHash';
-            if ($meta->{$field}{possibleValues}){
-                my $values = WebGUI::Operation::Shared::secureEval($self->session,$meta->{$field}{possibleValues});
-                if (ref $values eq 'HASH') {
-                    %options = %{$values};
-                }
-                else{
-                    foreach (split(/\n/x, $meta->{$field}{possibleValues})) {
-                    s/\s+$//x; # remove trailing spaces
-                    $options{$_} = $_;
-                    }
-                }
-            }
+            my $options = $meta->{$field}{possibleValues};
             # Add a "Select..." option on top of a select list to prevent from
             # saving the value on top of the list when no choice is made.
-            if($fieldType eq "selectBox") {
-                %options = ("" => $i18n->get("Select", "Asset"),%options);
+            if("\l$fieldType" eq "selectBox") {
+                $options = "|" . $i18n->get("Select") . "\n" . $options;
             }
             my $form = WebGUI::Form::DynamicField->new($session,
-                name=>"metadata_".$meta->{$field}{fieldId},
-                uiLevel=>5,
-                value=>$meta->{$field}{value},
-                extras=>qq/title="$meta->{$field}{description}"/,
-                options=>\%options,
-                fieldType=>$fieldType,
+                name      => "metadata_".$meta->{$field}{fieldId},
+                uiLevel   => 5,
+                value     => $meta->{$field}{value},
+                extras    => qq/title="$meta->{$field}{description}"/,
+                options   => $options,
+                fieldType => $fieldType,
             )->toHtml;
             push @meta_loop, {
                 field => $form,
@@ -1556,7 +1749,7 @@ sub www_editSave {
 
 #-------------------------------------------------------------------
 
-=head2 www_ratePost ( )
+=head2 www_rate ( )
 
 The web method to rate a post.
 
@@ -1605,6 +1798,13 @@ sub www_showConfirmation {
 
 
 #-------------------------------------------------------------------
+
+=head2 www_view 
+
+Increment the views on this Post, then display the Thread containing this Post.
+
+=cut
+
 sub www_view {
 	my $self = shift;
 	$self->incrementViews;

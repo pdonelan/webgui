@@ -204,13 +204,11 @@ sub definition {
             },
         lastUpdated => {
             defaultValue    =>time(),
-            autoGenerate    =>0,
-            noFormPost      =>1,
+            fieldType       =>'hidden',
             },
 	);
 	push(@{$definition}, {
 		assetName=>$i18n->get('assetName'),
-		icon=>'MatrixListing.gif',
 		autoGenerateForms=>1,
 		tableName=>'MatrixListing',
 		className=>'WebGUI::Asset::MatrixListing',
@@ -434,7 +432,7 @@ sub incrementCounter {
     
     my $currentIp = $self->session->env->get("HTTP_X_FORWARDED_FOR");
     
-    unless ($self->get($counter."LastIp") eq $currentIp) {
+    unless ($self->get($counter."LastIp") && ($self->get($counter."LastIp") eq $currentIp)) {
         $self->update({ 
             $counter."LastIp"   => $currentIp,
             $counter            => $self->get($counter)+1
@@ -712,8 +710,6 @@ sub view {
     {type =>'text/javascript'});
     $self->session->style->setScript($self->session->url->extras('yui/build/button/button-min.js'),
     {type =>'text/javascript'});
-    $self->session->style->setScript($self->session->url->extras('wobject/Matrix/matrixListing.js'), {type =>
-    'text/javascript'});
     $self->session->style->setLink($self->session->url->extras('yui/build/datatable/assets/skins/sam/datatable.css'),
         {type =>'text/css', rel=>'stylesheet'});
 

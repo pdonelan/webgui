@@ -87,17 +87,23 @@ sub process {
 	# stuff to do if we're on a page with an asset
 	if ($asset) {
 		
+        my $proceed = $session->form->get('op') eq 'assetManager' ?  ';proceed=manageAssets' : '';
 		# clipboard
 		my $clipboardItems = $session->asset->getAssetsInClipboard(1);
 		if (scalar (@$clipboardItems)) {
-			$out .= q{<dt class="a-m-t">}.$i18n->get("1082").q{</dt><dd class="a-m-d"><div class="bd">};
+            my $formProceed = $session->form->get('op') eq 'assetManager' ? 'manageAssets' : '';
+			$out .= q{<dt class="a-m-t">}.$i18n->get("1082").q{</dt><dd class="a-m-d"><div class="bd">}
+                 .  WebGUI::Form::formHeader($session,
+                        { action => $session->url->page('func=pasteList;assetId=0;proceed='.$formProceed), extras => "id='adminBarClip'", }
+                    );
 			foreach my $item (@{$clipboardItems}) {
 				my $title = $asset->getTitle;
-				$out .= q{<a class="link" href="}.$asset->getUrl("func=paste;assetId=".$item->getId).q{">}
+				$out .= q{<a class="link" href="}.$asset->getUrl("func=pasteList;assetId=".$item->getId.$proceed).q{" onclick="var thisForm = document.getElementById('adminBarClip'); thisForm.assetId.value='}.$item->getId.q{'; thisForm.submit(); return false;">}
 					.q{<img src="}.$item->getIcon(1).q{" style="border: 0px; vertical-align: middle;" alt="icon" /> }
 					.$item->getTitle.q{</a>};
 			}
-			$out .= qq{</div></dd>\n};
+			$out .= WebGUI::Form::formFooter($session)
+                 .  qq{</div></dd>\n};
 		}
 
 		### new content menu
@@ -126,7 +132,7 @@ sub process {
 			next unless exists $categories{$assetList{$assetClass}{category}};
 			$categories{$assetList{$assetClass}{category}}{items}{$dummy->getTitle} = {
 				icon	=> $dummy->getIcon(1),
-				url		=> $asset->getUrl("func=add;class=".$dummy->get('className')),
+				url		=> $asset->getUrl("func=add;class=".$dummy->get('className').$proceed),
 				};
 		}
 
@@ -134,7 +140,7 @@ sub process {
 		foreach my $package (@{$session->asset->getPackageList}) {
 			next unless ($package->canView && $package->canAdd($session) && $package->getUiLevel <= $userUiLevel);
             $categories{packages}{items}{$package->getTitle} = {
-				url		=> $asset->getUrl("func=deployPackage;assetId=".$package->getId),
+				url		=> $asset->getUrl("func=deployPackage;assetId=".$package->getId.$proceed),
 				icon	=> $package->getIcon(1),
 				};
         }
@@ -144,15 +150,10 @@ sub process {
 		}
 		
 		# prototypes
-		my $sth = $session->db->read("select asset.className,asset.assetId,assetData.revisionDate from asset
-			left join assetData on asset.assetId=assetData.assetId
-			where assetData.isPrototype=1 and asset.state='published' and assetData.revisionDate=(SELECT max(revisionDate) from assetData where assetData.assetId=asset.assetId)
-			group by assetData.assetId");
-		while (my ($class, $id, $date) = $sth->array) {
-			my $prototype = WebGUI::Asset->new($session,$id,$class,$date);
+		foreach my $prototype (@{ $session->asset->getPrototypeList }) {
 			next unless ($prototype->canView && $prototype->canAdd($session) && $prototype->getUiLevel <= $userUiLevel);
             $categories{prototypes}{items}{$prototype->getTitle} = {
-				url		=> $asset->getUrl("func=add;class=".$class.";prototype=".$prototype->getId),
+				url		=> $asset->getUrl("func=add;class=".$prototype->get('className').";prototype=".$prototype->getId.$proceed),
 				icon	=> $prototype->getIcon(1),
 				};
 		}

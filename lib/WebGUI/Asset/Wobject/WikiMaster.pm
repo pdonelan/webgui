@@ -20,6 +20,20 @@ use HTML::Parser;
 use URI::Escape;
 
 #-------------------------------------------------------------------
+
+=head2 appendMostPopular ($var, [ $limit ])
+
+=head3 $var
+
+A hash reference of template variables.  An array reference containing the most popular wiki pages
+in order of popularity.
+
+=head3 $limit
+
+If passed in, this will override the mostPopularCount set in the object.
+
+=cut
+
 sub appendMostPopular {
 	my $self = shift;
 	my $var = shift;
@@ -37,6 +51,20 @@ sub appendMostPopular {
 }
 
 #-------------------------------------------------------------------
+
+=head2 appendRecentChanges ( $var [, $limit ] )
+
+=head3 $var
+
+A hash reference of template variables.  Template variables will be appended
+to the hash ref.
+
+=head3 $limit
+
+If passed in, this will override the mostChangesCount set in the object.
+
+=cut
+
 sub appendRecentChanges {
 	my $self = shift;
 	my $var = shift;
@@ -77,6 +105,21 @@ sub appendRecentChanges {
 }
 
 #-------------------------------------------------------------------
+
+=head2 appendSearchBoxVars  ($var, $queryText)
+
+Appends template variables for creating a search box to search the wiki.
+
+=head3 $var
+
+A hash reference of template variables.  The search box variables will be appended to this.
+
+=head3 $queryText
+
+Default value for the search box.
+
+=cut
+
 sub appendSearchBoxVars {
 	my $self = shift;
 	my $var = shift;
@@ -93,6 +136,18 @@ sub appendSearchBoxVars {
 }
 
 #-------------------------------------------------------------------
+
+=head2 autolinkHtml ($html)
+
+Scan HTML for words and phrases that match wiki titles, and automatically
+link them to those wiki pages.  Returns the modified HTML.
+
+=head3 $html
+
+The HTML to scan.
+
+=cut
+
 sub autolinkHtml {
 	my $self = shift;
 	my $html = shift;
@@ -139,6 +194,14 @@ sub autolinkHtml {
 }
 
 #-------------------------------------------------------------------
+
+=head2 canAdminister 
+
+Returns true if the current user is in the groupToAdminister group, or the user can edit
+this WikiMaster.
+
+=cut
+
 sub canAdminister {
 	my $self = shift;
 	return $self->session->user->isInGroup($self->get('groupToAdminister')) || $self->WebGUI::Asset::Wobject::canEdit;
@@ -171,6 +234,14 @@ sub canEdit {
 }
 
 #-------------------------------------------------------------------
+
+=head2 canEditPages 
+
+Returns true is the current user is in the group that can edit page, or if
+they can administer the wiki (canAdminister).
+
+=cut
+
 sub canEditPages {
 	my $self = shift;
 	return $self->session->user->isInGroup($self->get("groupToEditPages")) || $self->canAdminister;
@@ -374,15 +445,36 @@ sub getRssFeedItems {
 }
 
 #-------------------------------------------------------------------
+
+=head2 prepareView 
+
+Prepare the front page template.
+
+=cut
+
 sub prepareView {
 	my $self = shift;
 	$self->next::method;
 	$self->{_frontPageTemplate} =
 	    WebGUI::Asset::Template->new($self->session, $self->get('frontPageTemplateId'));
+    if (!$self->{_frontPageTemplate}) {
+        WebGUI::Error::ObjectNotFound::Template->throw(
+            error      => qq{Template not found},
+            templateId => $self->get('frontPageTemplateId'),
+            assetId    => $self->getId,
+        );
+    }
 	$self->{_frontPageTemplate}->prepare;
 }
 
 #-------------------------------------------------------------------
+
+=head2 processPropertiesFromFormPost 
+
+Extend the master method to propagate view and edit permissions down to the wiki pages.
+
+=cut
+
 sub processPropertiesFromFormPost {
 	my $self = shift;
 	my $groupsChanged =
@@ -399,6 +491,13 @@ sub processPropertiesFromFormPost {
 }
 
 #-------------------------------------------------------------------
+
+=head2 view 
+
+Render the front page of the wiki.
+
+=cut
+
 sub view {
 	my $self = shift;
 	my $i18n = WebGUI::International->new($self->session, "Asset_WikiMaster");
@@ -427,6 +526,13 @@ sub view {
 
 
 #-------------------------------------------------------------------
+
+=head2 www_byKeyword 
+
+Return search results that match the keyword from the form variable C<keyword>.
+
+=cut
+
 sub www_byKeyword {
     my $self = shift;
     my $keyword = $self->session->form->process("keyword");
@@ -456,6 +562,13 @@ sub www_byKeyword {
 
 
 #-------------------------------------------------------------------
+
+=head2 www_mostPopular 
+
+Render a templated page that lists the most popular wiki pages.
+
+=cut
+
 sub www_mostPopular {
 	my $self = shift;
 	my $i18n = WebGUI::International->new($self->session, "Asset_WikiMaster");
@@ -473,6 +586,13 @@ sub www_mostPopular {
 }
 
 #-------------------------------------------------------------------
+
+=head2 www_recentChanges 
+
+Render a templated page that shows the most recently changed wiki pages.
+
+=cut
+
 sub www_recentChanges {
 	my $self = shift;
 	my $i18n = WebGUI::International->new($self->session, "Asset_WikiMaster");
@@ -492,6 +612,13 @@ sub www_recentChanges {
 }
 
 #-------------------------------------------------------------------
+
+=head2 www_search 
+
+Render a search form and process the contents, returning the results.
+
+=cut
+
 sub www_search {
 	my $self = shift;
 	my $i18n = WebGUI::International->new($self->session, "Asset_WikiMaster");

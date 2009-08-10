@@ -7,6 +7,7 @@ use URI;
 use WebGUI::Form;
 use WebGUI::Paginator;
 use WebGUI::Utility;
+use WebGUI::Macro::AdminBar;
 
 #----------------------------------------------------------------------------
 
@@ -131,6 +132,7 @@ sub getSearchPaginator {
     
     my $s       = WebGUI::Search->new( $session, 0 );
     $s->search( {
+        assetIds        => $query->{ assetIds },
         keywords        => $query->{ keywords },
         classes         => $query->{ classes },
     } );
@@ -332,47 +334,6 @@ sub www_manage {
     ### Do Action
     my @assetIds    = $session->form->get( 'assetId' );
 
-    if ( $session->form->get( 'action_update' ) ) {
-        for my $assetId ( @assetIds ) {
-            my $asset       = WebGUI::Asset->newByDynamicClass( $session, $assetId );
-            next unless $asset;
-            my $rank        = $session->form->get( $assetId . '_rank' );
-            next unless $rank; # There's no such thing as zero
-
-            $asset->setRank( $rank );
-        }
-    }
-    elsif ( $session->form->get( 'action_delete' ) ) {
-        for my $assetId ( @assetIds ) {
-            my $asset       = WebGUI::Asset->newByDynamicClass( $session, $assetId );
-            next unless $asset;
-            $asset->trash;
-        }
-    }
-    elsif ( $session->form->get( 'action_cut' ) ) {
-        for my $assetId ( @assetIds ) {
-            my $asset       = WebGUI::Asset->newByDynamicClass( $session, $assetId );
-            next unless $asset;
-            $asset->cut;
-        }
-    }
-    elsif ( $session->form->get( 'action_copy' ) ) {
-        for my $assetId ( @assetIds ) {
-            # Copy == Duplicate + Cut
-            my $asset       = WebGUI::Asset->newByDynamicClass( $session, $assetId);
-            my $newAsset    = $asset->duplicate( { skipAutoCommitWorkflows => 1 } );
-            $newAsset->update( { title => $newAsset->getTitle . ' (copy)' } );
-            $newAsset->cut;
-        }
-    }
-    elsif ( $session->form->get( 'action_duplicate' ) ) {
-        for my $assetId ( @assetIds ) {
-            my $asset       = WebGUI::Asset->newByDynamicClass( $session, $assetId );
-            next unless $asset;
-            $asset->duplicate( { skipAutoCommitWorkflows => 1 } );
-        }
-    }
-
     # Handle autocommit workflows
     if (WebGUI::VersionTag->autoCommitWorkingIfEnabled($session, {
         allowComments   => 1,
@@ -405,13 +366,11 @@ sub www_manage {
     $session->style->setScript( $session->url->extras( 'yui-webgui/build/assetManager/assetManager.js' ) );
     $session->style->setScript( $session->url->extras( 'yui-webgui/build/form/form.js' ) );
 
-    my $extras      = $session->url->extras;
     $session->style->setRawHeadTags( <<ENDHTML );
     <link type="text/css" rel="stylesheet" href="http://yui.yahooapis.com/2.6.0/build/logger/assets/skins/sam/logger.css">
     <script type="text/javascript" src="http://yui.yahooapis.com/2.6.0/build/logger/logger-min.js"></script> 
 
-<script type="text/javascript">
-        WebGUI.AssetManager.extrasUrl   = '$extras';
+    <script type="text/javascript">
         YAHOO.util.Event.onDOMReady( WebGUI.AssetManager.initManager );
     </script>
 ENDHTML
@@ -438,43 +397,51 @@ ENDHTML
     $output .= '</ol>';
     
     ### The page of assets
-    $output         .= q{<div>}
-                    . q{<form method="post" enctype="multipart/form-data">}
-                    . q{<input type="hidden" name="op" value="assetManager" />}
-                    . q{<input type="hidden" name="method" value="manage" />}
-                    . q{<div id="dataTableContainer">}
-                    . q{</div>} 
-                    . q{<p class="actions">} . $i18n->get( 'with selected' )
-                    . q{<input type="submit" name="action_update" value="} . $i18n->get( "update" ) . q{" />}
-                    . q{<input type="submit" name="action_delete" value="} . $i18n->get( "delete" ) . q{" onclick="return confirm('} . $i18n->get( 43 ) . q{')" />}
-                    . q{<input type="submit" name="action_cut" value="} . $i18n->get( 'cut' ) . q{" />}
-                    . q{<input type="submit" name="action_copy" value="} . $i18n->get( "Copy" ) . q{" />}
-                    . q{<input type="submit" name="action_duplicate" value="} . $i18n->get( "duplicate" ) . q{" />}
-                    . q{</p>}
-                    . q{</form>}
-                    . q{<div id="pagination"> } 
-                    . q{</div>}
-                    . q{</div>}
-                    ;
+    $output         .= sprintf <<EOHTML, $session->asset->getUrl, WebGUI::Form::CsrfToken->new($session)->toHtml, $i18n->get( 'with selected' ), $i18n->get( "update" ), $i18n->get( "delete" ), $i18n->get( '43' ), $i18n->get( 'cut' ), $i18n->get( "Copy" ), $i18n->get( "duplicate" );
+<div>
+<form method="post" enctype="multipart/form-data" action="%s">
+%s
+<input type="hidden" name="func"    value="manageAssets" />
+<input type="hidden" name="proceed" value="manageAssets" />
+<div id="dataTableContainer">
+</div>
+<p class="actions"> %s 
+<input type="submit" name="action_update" value="%s" onclick="this.form.func.value='setRanks'; this.form.submit();" />
+<input type="submit" name="action_delete" value="%s" onclick="if( confirm('%s')){ this.form.func.value='deleteList'; this.form.submit(); }{ return false; }" />
+<input type="submit" name="action_cut" value="%s" onclick="this.form.func.value='cutList'; this.form.submit();"/>
+<input type="submit" name="action_copy" value="%s"  onclick="this.form.func.value='copyList'; this.form.submit();"/>
+<input type="submit" name="action_duplicate" value="%s"  onclick="this.form.func.value='duplicateList'; this.form.submit();"/>
+</p>
+</form>
+<div id="pagination">
+</div>
+</div>
+EOHTML
     
     ### Clearing div
     $output         .= q{<div style="clear: both;">&nbsp;</div>};
 
     tie my %options, 'Tie::IxHash';
     my $hasClips = 0;
+    my $clipNum  = 0;
     foreach my $asset (@{$currentAsset->getAssetsInClipboard(1)}) {
             $options{$asset->getId} = '<img src="'.$asset->getIcon(1).'" alt="'.$asset->getName.'" style="border: 0px;" /> '.$asset->getTitle;
             $hasClips = 1;
+            $clipNum++;
     }
     if ($hasClips) {
             $output .= '<div class="functionPane"><fieldset><legend>'.$i18n->get(1082).'</legend>'
                     .WebGUI::Form::formHeader($session, {action=>$currentAsset->getUrl})
                     .WebGUI::Form::hidden($session,{name=>"func",value=>"pasteList"})
-                    .WebGUI::Form::checkbox($session,{extras=>'onclick="toggleClipboardSelectAll(this.form);"'})
-                    .' '.$i18n->get("select all").'<br />'
+                    .WebGUI::Form::hidden($session,{name=>"proceed",value=>"manageAssets"})
+                    .( $clipNum > 1
+                        ? WebGUI::Form::checkbox($session,{extras=>'onclick="toggleClipboardSelectAll(this.form);"'}).' '.$i18n->get("select all").'<br />'
+                        : ''
+                     )
+                    
                     .WebGUI::Form::checkList($session,{name=>"assetId",vertical=>1,options=>\%options})
                     .'<br />'
-                    .WebGUI::Form::submit($session,{value=>"Paste"})
+                    .WebGUI::Form::submit($session,{value=>$i18n->get('Paste')})
                     .WebGUI::Form::formFooter($session)
                     .' </fieldset></div> '
                     .'<script type="text/javascript">
@@ -611,7 +578,18 @@ sub www_search {
         my $keywords        = $session->form->get( 'keywords' );
         my @classes         = $session->form->get( 'class' );
 
-        my $p       = getSearchPaginator( $session, { 
+        # Detect a helper word key
+        my @assetIds        = ($keywords =~ /assetid:\s*([^\s]+)/gi);
+
+        # purge helper word keys
+        if (@assetIds) {
+            $keywords =~ s/\bassetid:\s*[^\s]+//gi;
+        }
+        $keywords =~ s/^\s+//g;
+        $keywords =~ s/\s+$//g;
+
+        my $p       = getSearchPaginator( $session, {
+            assetIds            => \@assetIds,
             keywords            => $keywords,
             classes             => \@classes,
             orderByColumn       => $session->form->get( 'orderByColumn' ),
@@ -754,5 +732,6 @@ sub www_search {
 
     return $ac->render( $output );
 }
+
 
 1;

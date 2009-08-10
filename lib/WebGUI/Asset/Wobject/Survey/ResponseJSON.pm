@@ -45,7 +45,9 @@ use strict;
 use JSON;
 use Params::Validate qw(:all);
 use List::Util qw(shuffle);
+use Clone qw/clone/;
 use Safe;
+use WebGUI::Asset::Wobject::Survey::ExpressionEngine;
 Params::Validate::validation_options( on_fail => sub { WebGUI::Error::InvalidParam->throw( error => shift ) } );
 
 #-------------------------------------------------------------------
@@ -76,26 +78,53 @@ sub new {
 
     # Create skeleton object..
     my $self = {
-        # First define core members..
         _survey => $survey,
         _session => $survey->session,
-
-        # Store all properties that are (de)serialized to/from JSON in a private variable
-        _response => {
-
-            # Response hash defaults..
-            responses => {},
-            lastResponse => -1,
-            questionsAnswered => 0,
-            startTime => time(),
-            surveyOrder => undef,
-
-            # And then allow jsonData to override defaults and/or add other members
-            %{$jsonData},
-        },
+        # _response property set by call to reset()
     };
     
-    return bless $self, $class;
+    bless $self, $class;
+    $self->reset({ data => $jsonData });
+}
+
+=head2 reset
+
+Reset all response data in this object (e.g. re-init the _response property)
+
+=cut
+
+sub reset {
+    my $self = shift;
+    my (%opts) = validate(@_, { data => { type => HASHREF, default => {} }, preserveSurveyOrder => 0 } );
+    
+    my $data = $opts{data};
+    
+    # Access these via the private hash var so that we don't inadvertantly trigger initSurveyOrder
+    my $oldSurveyOrder = $self->{_response}{surveyOrder};
+    my $oldSurveyOrderLookup = $self->{_response}{surveyOrderLookup};
+    
+    $self->{_response} = {
+        # Response hash defaults..
+        responses => {},
+        lastResponse => -1,
+        questionsAnswered => 0,
+        startTime => time(),
+        surveyOrder => undef,
+        tags => {},
+    };
+    
+    # And then data overrides (via a hash slice)
+    @{$self->{_response}}{keys %{$data}} = values %{$data};
+    
+    if ($opts{preserveSurveyOrder}) {
+        $self->{_response}{surveyOrder} = $oldSurveyOrder;
+        $self->{_response}{surveyOrderLookup} = $oldSurveyOrderLookup;
+    }
+    
+    # If first section is logical, process it immediately
+    $self->checkForLogicalSection;
+    
+    return $self;
 }
 
 #----------------------------------------------------------------------------
@@ -106,6 +135,8 @@ Computes and stores the order of Sections, Questions and Aswers for this Survey.
 See L<"surveyOrder">. You normally don't need to call this, as L<"surveyOrder"> will
 call it for you the first time it is used.
 
+Also builds a lookup table for surveyOrder index, for performance reasons.
+
 Questions and Answers that are set to be randomized are shuffled into a random order.
 
 =cut
@@ -113,13 +144,22 @@ Questions and Answers that are set to be randomized are shuffled into a random o
 sub initSurveyOrder {
     my $self = shift;
 
+    # Build a lookup table as we go
+    my %lookup;
+    
     # Order Questions in each Section
     my @surveyOrder;
+    my $surveyOrderIndex = 0;
     for my $sIndex ( 0 .. $self->survey->lastSectionIndex ) {
-
+        my $s = $self->survey->section( [$sIndex] );
+        
+        if (my $variable = $s->{variable}) {
+            $lookup{$variable} = $surveyOrderIndex if !exists $lookup{$variable};
+        }
+        
         #  Randomize Questions if required..
         my @qOrder;
-        if ( $self->survey->section( [$sIndex] )->{randomizeQuestions} ) {
+        if ( $s->{randomizeQuestions} ) {
             @qOrder = shuffle 0 .. $self->survey->lastQuestionIndex( [$sIndex] );
         }
         else {
@@ -127,25 +167,33 @@ sub initSurveyOrder {
         }
 
         # Order Answers in each Question
-        for my $q (@qOrder) {
-
+        for my $qIndex (@qOrder) {
+            
+            my $question = $self->survey->question( [ $sIndex, $qIndex ] );
+            if (my $variable = $question->{variable}) {
+                $lookup{$variable} = $surveyOrderIndex if !exists $lookup{$variable};
+            }
+            
             # Randomize Answers if required..
             my @aOrder;
-            if ( $self->survey->question( [ $sIndex, $q ] )->{randomizeAnswers} ) {
-                @aOrder = shuffle 0 .. $self->survey->lastAnswerIndex( [ $sIndex, $q ] );
+            if ( $question->{randomizeAnswers} ) {
+                @aOrder = shuffle 0 .. $self->survey->lastAnswerIndex( [ $sIndex, $qIndex ] );
             }
             else {
-                @aOrder = ( 0 .. $self->survey->lastAnswerIndex( [ $sIndex, $q ] ) );
+                @aOrder = ( 0 .. $self->survey->lastAnswerIndex( [ $sIndex, $qIndex ] ) );
             }
-            push @surveyOrder, [ $sIndex, $q, \@aOrder ];
+            push @surveyOrder, [ $sIndex, $qIndex, \@aOrder ];
+            $surveyOrderIndex++; # Increment each time an item is pushed onto @surveyOrder
         }
 
         # If Section had no Questions, make sure it is still added to @surveyOrder
         if ( !@qOrder ) {
             push @surveyOrder, [$sIndex];
+            $surveyOrderIndex++; # Increment each time an item is pushed onto @surveyOrder
         }
     }
     $self->response->{surveyOrder} = \@surveyOrder;
+    $self->response->{surveyOrderLookup} = \%lookup;
     
     return;
 }
@@ -169,11 +217,18 @@ sub session {
 
 Serializes the internal perl hash representing the Response to a JSON string
 
+To reduce json serialization time and db bloat, we only serialize the bare essentials
+
 =cut
 
 sub freeze {
     my $self = shift;
-    return to_json($self->response);
+    
+    # These are the only properties of the response hash that we serialize:
+    my @props = qw(responses lastResponse questionsAnswered startTime tags);
+    my %serialize;
+    @serialize{@props} = @{$self->response}{@props};
+    return to_json(\%serialize);
 }
 
 #-------------------------------------------------------------------
@@ -202,6 +257,9 @@ sub hasTimedOut{
 Mutator. The lastResponse property represents the surveyOrder index of the most recent item shown. 
 
 This method returns (and optionally sets) the value of lastResponse.
+
+You may want to call L<checkForLogicalSection> after modifying this so that
+any logical section you land in gets immediately processed.
 
 =head3 $responseIndex (optional)
 
@@ -270,6 +328,30 @@ sub startTime {
 
 #-------------------------------------------------------------------
 
+=head2 tags ([ $tags ])
+
+Mutator for the tags that have been applied to the response.
+Returns (and optionally sets) the value of tags.
+
+=head3 $tags (optional)
+
+If defined, sets $tags to the supplied hashref.
+
+=cut
+
+sub tags {
+    my $self     = shift;
+    my ($tags) = validate_pos(@_, {type => HASHREF, optional => 1});
+
+    if ( $tags ) {
+        $self->response->{tags} = $tags;
+    }
+
+    return $self->response->{tags};
+}
+
+#-------------------------------------------------------------------
+
 =head2 surveyOrder
 
 Accessor. Initialized on first access via L<"initSurveyOrder">.
@@ -311,6 +393,29 @@ sub surveyOrder {
     return $self->response->{surveyOrder};
 }
 
+=head2 surveyOrderIndex ($variable)
+
+Looks up the surveyOrder index of Section/Question via variable name
+
+Uses the surveyOrderLookup table, which gets lazily built if it doesn't exist
+
+=cut
+
+sub surveyOrderIndex {
+    my $self = shift;
+    my $variable = shift;
+    
+    if (!defined $self->response->{surveyOrderLookup}) {
+        $self->initSurveyOrder();
+    }
+    
+    if ($variable) {
+        return $self->response->{surveyOrderLookup}{$variable};
+    } else {
+        return clone $self->response->{surveyOrderLookup};
+    }
+}
+
 #-------------------------------------------------------------------
 
 =head2 nextResponse ([ $responseIndex ])
@@ -318,6 +423,9 @@ sub surveyOrder {
 Mutator. The index of the next item that should be shown to the user, 
 that is, the index of the next item in the L<"surveyOrder"> array,
 e.g. L<"lastResponse"> + 1.
+
+You may want to call L<checkForLogicalSection> after modifying this so that
+any logical section you land in gets immediately processed.
 
 =head3 $responseIndex (optional)
 
@@ -402,178 +510,265 @@ Processes and records submitted survey responses in the L<"responses"> data stru
 Does terminal handling, and branch processing, and advances the L<"lastResponse"> index 
 if all required questions have been answered.
 
-=head3 $submittedResponses
+=head3 $responses
 
 A hash ref of submitted form param data. Each element should look like:
 
     {
         "questionId-comment"    => "question comment",
         "answerId"              => "answer",
-        "answerId-comment"      => "answer comment",
+        "answerId-verbatim"     => "answer verbatim",
     }
 
 See L<"questionId"> and L<"answerId">.
 
-=head3 Terminal processing
+=head3 Terminal, goto and gotoExpression processing
 
-Terminal processing for a section and its questions and answers are handled in
-order.  The terminalUrl setting in a question overrides the terminalUrl setting
-for its section.  Similarly, with questions and answers, the last terminalUrl
-setting of the set of questions is what is returned for the page, with the questions
-and answers being answered in L<"surveyOrder">.
+Gotos are processed first, followed by gotoExpressions, and finally terminals.
+On a page with the following items:
+   Section 1
+     Question 1.1
+       Answer 1.1.1
+       Answer 1.1.2
+     Question 1.2
+       Answer 1.2.1
+     ..
 
-=head3 Branch processing
+the precedence order is inside-out, in order of questions displayed, e.g.
 
-gotos and gotoExpressions are handled similarly as with terminalUrls. The last goto or 
-gotoExpression in the set of questions wins.
+   Answer 1.1.1
+   Answer 1.1.2
+   Question 1.1
+   Answer 1.2.1
+   Question 1.2
+   Section 1
+
+The first to trigger a jump short-circuits the process, meaning that subsequent items are not attempted.
+
+For Sections with questions spread out over several pages, Section-level actions are only performed on the final page of the Section.
 
 =cut
 
 sub recordResponses {
     my $self = shift;
-    my ($submittedResponses) = validate_pos( @_, { type => HASHREF } );
+    my ($responses) = validate_pos( @_, { type => HASHREF } );
 
     # Build a lookup table of non-multiple choice question types
-    my %knownTypes = map {$_ => 1} @{$self->survey->specialQuestionTypes};
-    
+    my %specialQTypes = map { $_ => 1 } @{ $self->survey->specialQuestionTypes };
+
     # We want to record responses against the "next" response section and questions, since these are
     # the items that have just been displayed to the user.
-    my $section   = $self->nextResponseSection();
-    my @questions = $self->nextQuestions();
+    my $section = $self->nextResponseSection();
+    my $sId = $self->nextResponseSectionIndex(); # make note of the section id prior to recording any responses
 
-    #GOTO jumps in the Survey.  Order of precedence is Answer, Question, then Section.
-    my ($goto, $gotoExpression);
-
-    # Handle terminal Section..
-    my $terminalUrl;
-    my $sTerminal = 0;
-    if ( $section->{terminal} ) {
-        $sTerminal   = 1;
-        $terminalUrl = $section->{terminalUrl};
-    }
-    # ..and also gotos..
-    elsif ( $section->{goto} =~ /\w/ ) {
-        $goto = $section->{goto};
-    }
-    # .. and also gotoExpressions..
-    elsif ( $section->{gotoExpression} =~ /\w/ ) {
-        $gotoExpression = $section->{gotoExpression};
-    }
-
-    # Handle empty Section..
-    if ( !@questions ) {
-        # No questions to process, so increment lastResponse and return
-        $self->lastResponse( $self->nextResponse );
-        return [ $sTerminal, $terminalUrl ];
-    }
-
-    # Process Questions in Section..
-    my $terminal = 0;
-    my $allRequiredQsAnswered = 1;
+    # Process responses by looping over expected questions in survey order
+    my @questions  = $self->nextQuestions();
+    my %newResponse;
+    my $allQsValid = 1;
+    my %validAnswers;
     for my $question (@questions) {
-        my $aAnswered = 0;
+        my $aValid = 0;
+        my $qId = $question->{id};
 
-        # Handle terminal Questions..
-        if ( $question->{terminal} ) {
-            $terminal    = 1;
-            $terminalUrl = $question->{terminalUrl};
+        my $comment = $responses->{ "${qId}comment" };
+        if (defined $comment && length $comment) {
+            $newResponse{ $qId }->{comment} = $comment;
         }
-        # ..and also gotos..
-        elsif ( $question->{goto} =~ /\w/ ) {
-            $goto = $question->{goto};
-        }
-        # .. and also gotoExpressions..
-        elsif ( $question->{gotoExpression} =~ /\w/ ) {
-            $gotoExpression = $question->{gotoExpression};
-        }
-
-        # Record Question comment
-        $self->responses->{ $question->{id} }->{comment} = $submittedResponses->{ $question->{id} . 'comment' };
-
-        # Process Answers in Question..
+        
         for my $answer ( @{ $question->{answers} } ) {
+            my $aId = $answer->{id};
+            my $recordedAnswer = $responses->{ $aId };
+            my $questionType = $question->{questionType};
 
-            # Pluck the values out of the responses hash that we want to record..
-            my $submittedAnswerResponse = $submittedResponses->{ $answer->{id} };
-            my $submittedAnswerComment  = $submittedResponses->{ $answer->{id} . 'comment' };
-            my $submittedAnswerVerbatim = $submittedResponses->{ $answer->{id} . 'verbatim' };
-
-            # Proceed if we're satisfied that the submitted answer response is valid..
-            if ( defined $submittedAnswerResponse && $submittedAnswerResponse =~ /\S/ ) {
-
-                #Validate answers met question criteria
-                if($question->{questionType} eq 'Number'){
-                    if($answer->{max} =~ /\d/ and $submittedAnswerResponse > $answer->{max}){
-                        next;
-                    }elsif($answer->{min} =~ /\d/ and $submittedAnswerResponse < $answer->{min}){
-                        next;
-                    }elsif($answer->{step} =~ /\d/ and $submittedAnswerResponse % $answer->{step} != 0){
-                        next;
-                    }
-                }
+            # Server-side Validation and storing of extra data for special q types goes here
+            # Any answer that fails validation should be skipped with 'next'
             
-                $aAnswered = 1;
-
-                # Now, decide what to record. For multi-choice questions, use recordedAnswer.
-                # Otherwise, we use the (raw) submitted response (e.g. text input, date input etc..)
-                $self->responses->{ $answer->{id} }->{value}
-                    = $knownTypes{ $question->{questionType} }
-                    ? $submittedAnswerResponse
-                    : $answer->{recordedAnswer};
-                
-                $self->responses->{ $answer->{id} }->{verbatim} = $answer->{verbatim} ? $submittedAnswerVerbatim : undef;
-                $self->responses->{ $answer->{id} }->{time}     = time;
-                $self->responses->{ $answer->{id} }->{comment}  = $submittedAnswerComment;
-
-                # Handle terminal Answers..
-                if ( $answer->{terminal} ) {
-                    $terminal    = 1;
-                    $terminalUrl = $answer->{terminalUrl};
+            if ( $questionType eq 'Country' ) {
+                # Must be a valid country
+                if (!grep { $_ eq $recordedAnswer } WebGUI::Form::Country->getCountries) {
+                    $self->session->log->debug("Invalid $questionType: $recordedAnswer");
+                    next;
                 }
-
-                # ..and also gotos..
-                elsif ( $answer->{goto} =~ /\w/ ) {
-                    $goto = $answer->{goto};
+            }
+#            elsif ( $questionType eq 'Date' ) {
+#                # Accept any date input until we get per-question validation options
+#                if ($recordedAnswer !~ m|^\d{4}/\d{1,2}/\d{1,2}$|) {
+#                    $self->session->log->debug("Invalid $questionType: $recordedAnswer");
+#                    next;
+#                }
+#            } 
+            elsif ( $questionType eq 'Number' || $questionType eq 'Slider' ) {
+                if ( $answer->{max} =~ /\d/ and $recordedAnswer > $answer->{max} ) {
+                    $self->session->log->debug("Invalid $questionType: $recordedAnswer");
+                    next;
                 }
-
-                # .. and also gotoExpressions..
-                elsif ( $answer->{gotoExpression} =~ /\w/ ) {
-                    $gotoExpression = $answer->{gotoExpression};
+                elsif ( $answer->{min} =~ /\d/ and $recordedAnswer < $answer->{min} ) {
+                    $self->session->log->debug("Invalid $questionType: $recordedAnswer");
+                    next;
                 }
+            } 
+            elsif ( $questionType eq 'Year Month' ) {
+                # store year and month as "YYYY Month"
+                $recordedAnswer = $responses->{ "$aId-year" } . " " . $responses->{ "$aId-month" };
+            }
+            else {
+                # In the case of a mc question, only selected answers will have a defined recordedAnswer
+                # Thus we skip any answers where recordedAnswer is not defined
+                if (!defined $recordedAnswer || $recordedAnswer !~ /\S/) {
+                    $self->session->log->debug("Invalid $questionType: $recordedAnswer");
+                    next;
+                }
+            } 
+
+            # If we reach here, answer validated ok
+            $aValid = 1;
+            $validAnswers{$aId} = 1;
+
+            # Now, decide what to record. For multi-choice questions, use recordedAnswer.
+            # Otherwise, we use the (raw) submitted response (e.g. text input, date input etc..)
+            $newResponse{ $aId } = {
+                value       => $specialQTypes{ $questionType } ? $recordedAnswer : $answer->{recordedAnswer},
+                time        => time,
+            };
+            
+            # Only record verbatim if answer is marked verbatim
+            my $verbatim = $responses->{ "${aId}verbatim" };
+            if ($answer->{verbatim} && defined $verbatim && length $verbatim) {
+                $newResponse{ $aId }{verbatim} = $verbatim;
             }
         }
 
-        # Check if a required Question was skipped 
-        if ( $question->{required} && !$aAnswered  ) {
-            $allRequiredQsAnswered = 0;
-        }
+        # Check if a required Question was skipped
+        $allQsValid = 0 if $question->{required} && !$aValid;
 
         # If question was answered, increment the questionsAnswered count..
-        if ($aAnswered) {
-            $self->questionsAnswered(+1);
+        $self->questionsAnswered(+1) if $aValid;
+    }
+
+    # Stop here on validation errors
+    if ( !$allQsValid ) {
+        $self->session->log->debug("One or more questions failed validation");
+        return;
+    }
+    
+    # Add newResponse to the overall response (via a hash slice)
+    @{$self->responses}{keys %newResponse} = values %newResponse;
+    
+    # Now that the response has been recorded, increment nextResponse
+    # N.B. This can be overwritten by goto and gotoExpressions, below.
+    # (we give them a chance to run before processing logical sections)
+    # Normally we move forward by the number of questions answered, but if
+    # the section has no questions we still move forward by 1
+    $self->nextResponse( $self->nextResponse + ( @questions || 1 ) );
+
+    # Now that the response has been added, loop over the questions a second time
+    # to process goto, gotoExpression, and terminalUrls. 
+    #
+    # We are only dealing with a single section. On a page with:
+    #
+    #   Section 1
+    #     Question 1.1
+    #       Answer 1.1.1
+    #       Answer 1.1.2
+    #     Question 1.2
+    #       Answer 1.2.1
+    #     ..
+    #
+    # the precedence order is inside-out, in order of questions displayed, e.g.
+    #
+    #   Answer 1.1.1
+    #   Answer 1.1.2
+    #   Question 1.1
+    #   Answer 1.2.1
+    #   Question 1.2
+    #   Section 1
+    #   ..
+    for my $question (@questions) {
+        
+        # First Answers..
+        
+        for my $answer ( @{ $question->{answers} } ) {
+            # Only process the chosen answer..
+            my $aId = $answer->{id};
+            next if !$validAnswers{$aId};
+            
+            # Answer goto
+            if (my $action = $answer->{goto} && $self->processGoto($answer->{goto})) {
+                $self->session->log->debug("Branching on Answer goto: $answer->{goto}");
+                return $action;
+            }
+            # Then answer gotoExpression
+            if (my $action = $answer->{gotoExpression} && $self->processExpression($answer->{gotoExpression})) {
+                $self->session->log->debug("Branching on Answer gotoExpression: $answer->{gotoExpression}");
+                return $action;
+            }
+            # Then answer terminal
+            if ($answer->{terminal}) {
+                $self->session->log->debug("Answer terminal: $answer->{terminalUrl}");
+                return { terminal => $answer->{terminalUrl} };
+            }
+        }
+        
+        # Then Questions..
+        
+        # Question goto
+        if (my $action = $question->{goto} && $self->processGoto($question->{goto})) {
+            $self->session->log->debug("Branching on Question goto: $question->{goto}");
+            return $action;
+        }
+        # Then question gotoExpression
+        if (my $action = $question->{gotoExpression} && $self->processExpression($question->{gotoExpression})) {
+            $self->session->log->debug("Branching on Question gotoExpression: $question->{gotoExpression}");
+            return $action;
+        }
+        # N.B. Questions don't have terminalUrls
+    }
+    
+    # Then Sections.. (but if this is the last page of the Section)
+    my $newSectionIndex = $self->nextResponseSectionIndex;
+    if ($newSectionIndex != $sId) {
+        # Section goto
+        if (my $action = $section->{goto} && $self->processGoto($section->{goto})) {
+            $self->session->log->debug("Branching on Section goto: $section->{goto}");
+            return $action;
+        }
+        # Then section gotoExpression
+        if (my $action = $section->{gotoExpression} && $self->processExpression($section->{gotoExpression})) {
+            $self->session->log->debug("Branching on Section gotoExpression: $section->{gotoExpression}");
+            return $action;
+        }
+        # Then section terminal
+        if ($section->{terminal} && $self->nextResponseSectionIndex != $self->lastResponseSectionIndex) {
+            $self->session->log->debug("Section terminal: $section->{terminalUrl}");
+            return { terminal => $section->{terminalUrl} };
         }
     }
+    
+    # The above goto and gotoExpression checks will have already called $self->checkForLogicalSection after
+    # moving nextResponse, however we need to call it again here for the case where the survey fell
+    # through naturally to a logical section
+    $self->checkForLogicalSection;
+    
+    $self->session->log->debug("Falling through..");
+    return;
+}
 
-    # If all required responses were given, proceed onwards!
-    if ($allRequiredQsAnswered) {
+=head2 checkForLogicalSection
 
-        #  Move the lastResponse index to the last question answered
-        $self->lastResponse( $self->lastResponse + @questions );
+Check if the next response section is marked as logical, and if so, immediately processed it.
+Normally, this sub should be called every time lastResponse or nextResponse is modified, so
+that logical sections "automatically" trigger.
 
-        # Do any requested branching.. 
-        $self->processGoto($goto)                     if ( defined $goto );           ## no critic
-        $self->processGotoExpression($gotoExpression) if ( defined $gotoExpression ); ## no critic
+=cut
+
+sub checkForLogicalSection {
+    my $self = shift;
+    my $section = $self->nextResponseSection();
+    if ($section && $section->{logical}) {
+        $self->session->log->debug("Processing logical section $section->{variable}");
+        $self->recordResponses({});
     }
-    else {
-        # Required responses were missing, so we don't let the Survey terminate
-        $terminal = 0;
-    }
-
-    if ( $sTerminal && $self->nextResponseSectionIndex != $self->lastResponseSectionIndex ) {
-        $terminal = 1;
-    }
-
-    return [ $terminal, $terminalUrl ];
+    return;
 }
 
 #-------------------------------------------------------------------
@@ -592,7 +787,9 @@ A variable name to match against all section and question variable names.
 
 sub processGoto {
     my $self = shift;
-    my ($goto) = validate_pos(@_, {type => SCALAR});
+    my ($goto) = validate_pos(@_, {type => SCALAR|UNDEF});
+    
+    return if !$goto;
     
     if ($goto eq 'NEXT_SECTION') {
         $self->session->log->debug("NEXT_SECTION jump target encountered");
@@ -602,74 +799,76 @@ sub processGoto {
         while ($self->nextResponseSectionIndex == $lastResponseSectionIndex) {
             $self->lastResponse( $self->lastResponse + 1);
         }
-        return;
+        $self->checkForLogicalSection;
+        return 1;
     }
     
     if ($goto eq 'END_SURVEY') {
         $self->session->log->debug("END_SURVEY jump target encountered");
         $self->lastResponse( scalar( @{ $self->surveyOrder} ) - 1 );
-        return;
+        $self->checkForLogicalSection;
+        return 1;
     }
-
-    # Iterate over items in order..
-    my $itemIndex = 0;
-    for my $address (@{ $self->surveyOrder }) {
-
-        # Retreive the section and question for this address..
-        my $section  = $self->survey->section( $address );
-        my $question = $self->survey->question( $address );
-
-        # See if our goto variable matches the section variable..
-        if ( ref $section eq 'HASH' && $section->{variable} eq $goto ) {
-
-            # Fudge lastResponse so that the next response item will be our matching item 
-            $self->lastResponse( $itemIndex - 1 );
-            last;
-        }
-
-        # See if our goto variable matches the question variable..
-        if ( ref $question eq 'HASH' && $question->{variable} eq $goto ) {
-
-            # Fudge lastResponse so that the next response item will be our matching item
-            $self->lastResponse( $itemIndex - 1 );
-            last;
-        }
-
-        # Increment the item index counter
-        $itemIndex++;
+    
+    if (defined(my $surveyOrderIndex = $self->surveyOrderIndex($goto))) {
+        $self->nextResponse( $surveyOrderIndex );
+        $self->checkForLogicalSection;
+        return 1;
     }
+    
     return;
 }
 
 #-------------------------------------------------------------------
 
-=head2 processGotoExpression ( $gotoExpression )
+=head2 processExpression ( $expression )
 
-Processes the given gotoExpression, and triggers a call to L<"processGoto"> if the expression
-indicates that we should branch.
+Processes a Survey expression using the Survey Expression Engine. 
 
-=head3 $gotoExpression
+If the expression returns tag data, this data is stored in the response (see L<tags>).
 
-The gotoExpression. See  L<WebGUI::Asset::Wobject::Survey::ExpressionEngine> for more info.
+If the expression returns a jump target, triggers a call to L<"processGoto">.
+
+=head3 $expression
+
+The expression. See  L<WebGUI::Asset::Wobject::Survey::ExpressionEngine> for more info.
 
 =cut
     
-sub processGotoExpression {
+sub processExpression {
     my $self = shift;
-    my ($expression) = validate_pos(@_, {type => SCALAR});
+    my ($expression) = validate_pos(@_, {type => SCALAR|UNDEF});
+    
+    return if !$expression;
     
     # Prepare the ingredients..
     my $values = $self->responseValuesByVariableName;
     my $scores = $self->responseScoresByVariableName;
+    my $tags   = $self->tags;
     my %validTargets = map { $_ => 1 } @{$self->survey->getGotoTargets};
     
-    use WebGUI::Asset::Wobject::Survey::ExpressionEngine;
     my $engine = "WebGUI::Asset::Wobject::Survey::ExpressionEngine";
-    if (my $jump = $engine->run($self->session, $expression, { values => $values, scores => $scores, validTargets => \%validTargets} )) {
-        $self->session->log->debug("Hit. Jumping to [$jump]");
-        $self->processGoto($jump);
+    if (my $result = $engine->run($self->session, $expression, { values => $values, scores => $scores, tags => $tags, validTargets => \%validTargets} ) ) {
+        # Update tags
+        if (my $tags = $result->{tags} ) {
+            $self->tags( $tags );
+        }
+        
+        if (my $jump = $result->{jump}) {
+            $self->session->log->debug("Jumping to [$jump]");
+            return $self->processGoto($jump);
+        } elsif (exists $result->{exitUrl}) { # may be undefined
+            my $exitUrl = $result->{exitUrl};
+            $self->session->log->debug("exitUrl triggered [$exitUrl]");
+            return { exitUrl => $exitUrl };
+        } elsif (my $restart = $result->{restart}) {
+            $self->session->log->debug("restart triggered");
+            return { restart => $restart };
+        } else {
+            $self->session->log->debug("No hits, falling through");
+            return;
+        }
     }
-    $self->session->log->debug("No hits, falling through");
     return;
 }
 
@@ -742,8 +941,13 @@ sub responseValuesByVariableName {
     my %options = validate(@_, { useText => 0 });
     
     my %lookup;
-    while (my ($address, $response) = each %{$self->responses}) {
-        next if (!$response || !$address);
+    
+    # Process responses in id order (so that questions with maxAnswers != 1 stringify according
+    # to natural ordering of answers (e.g. answer 0, answer 1, etc..
+    for my $address (sort keys %{$self->responses}) {
+        next if !$address;
+        my $response = $self->responses->{$address};
+        next if !$response;
         
         # Turn responses s-q-a string into an address array
         my @address = split /-/, $address;
@@ -757,11 +961,12 @@ sub responseValuesByVariableName {
         # Filter out questions without defined variable names
         next if !$question || !defined $question->{variable};
         
+        my $answer = $self->survey->answer([@address]);
+        
         my $value = $response->{value};
         if ($options{useText}) {
             # Test if question is a multiple choice type so we can use the answer text instead
             if($self->survey->getMultiChoiceBundle($question->{questionType})){
-                my $answer = $self->survey->answer([@address]);
                 my $answerText = $answer->{text};
                 
                 # For verbatim mc answers, combine answer text and recorded value
@@ -773,7 +978,22 @@ sub responseValuesByVariableName {
         }
         
         # Add variable => value to our hash
-        $lookup{$question->{variable}} = $value;
+        if (!$question->{maxAnswers} || $question->{maxAnswers} > 1) {
+            push @{$lookup{$question->{variable}}}, $value;
+        } else {
+            $lookup{$question->{variable}} = $value;
+        }
+        
+        # For verbatims, also add verbatim value to lookup as variable + _verbatim
+        if ($answer->{verbatim}) {
+            my $verbatimKey = $question->{variable} . "_verbatim";
+            my $verbatimValue = $response->{verbatim};
+            if (!$question->{maxAnswers} || $question->{maxAnswers} > 1) {
+                push @{$lookup{$verbatimKey}}, $verbatimValue;
+            } else {
+                $lookup{$verbatimKey} = $verbatimValue;
+            }
+        }
     }
     return \%lookup;
 }
@@ -793,8 +1013,12 @@ sub responseScoresByVariableName {
     my $self = shift;
     
     my %lookup;
-    while (my ($address, $response) = each %{$self->responses}) {
-        next if (!$response || !$address);
+    my $responses = $self->responses;
+    # Process responses in id order, just to be consistent with responseValuesByVariableName
+    for my $address (sort keys %$responses) {
+        next if !$address;
+        my $response = $responses->{$address};
+        next if !$response;
         
         # Turn responses s-q-a string into an address array
         my @address = split /-/, $address;
@@ -814,21 +1038,18 @@ sub responseScoresByVariableName {
         # Use question score if answer score undefined
         my $score = (exists $answer->{value} && length $answer->{value} > 0) ? $answer->{value} : $question->{value};
         
-        # Add variable => score to our hash
-        $lookup{$question->{variable}} = $score;
+        # Add variable => score to our hash (or add to existing score for multi-answer questions, e.g. maxAnswers != 1)
+        $lookup{$question->{variable}} += $score;
     }
     
     # Add section score totals
-    for my $s (@{$self->survey->sections}) {
-        next unless $s->{variable};
+    for my $s ( @{ $self->survey->sections } ) {
+        my $sVar = $s->{variable};
+        next unless $sVar;
         
-        my $score = 0;
-        for my $q (@{$s->{questions}}) {
-            next unless $q->{variable};
-            next unless exists $lookup{$q->{variable}};
-            
-            $lookup{$s->{variable}} += $lookup{$q->{variable}};
-        }
+        # N.B. Using map and grep here proved to be about twice as fast as looping over $s->{questions}
+        map { $lookup{$sVar} += $lookup{ $_->{variable} } }
+            grep { $_->{variable} and exists $lookup{ $_->{variable} } } @{ $s->{questions} };
     }
     
     return \%lookup;
@@ -859,7 +1080,13 @@ A hash reference. Each matching key in the string will be replaced with its asso
 
 sub getTemplatedText {
     my $self = shift;
-    my ($text, $params) = validate_pos(@_, { type => SCALAR }, { type => HASHREF });
+    my ($text, $params) = validate_pos(@_, { type => SCALAR|UNDEF }, { type => HASHREF });
+    $text = q{} if not defined $text;
+    
+    # Turn multi-valued answers into comma-separated text
+    for my $value (values %$params) {
+        $value = join(',', @$value) if ref $value eq 'ARRAY';
+    }
 
     # Replace all instances of [[var]] with the value from the $params hash reference
     $text =~ s/\[\[([^\%]*?)\]\]/$params->{$1}/eg;
@@ -910,12 +1137,17 @@ sub nextQuestions {
     
     # Get all of the existing question responses (so that we can do Section and Question [[var]] replacements
     my $responseValuesByVariableName = $self->responseValuesByVariableName( { useText => 1 } );
+    my $tags = $self->tags;
+    
+    # Merge values and tags hashes for processing [[var]] templated text
+    my %templateValues = (%$responseValuesByVariableName, %$tags);
 
     # Do text replacement
-    $section->{text} = $self->getTemplatedText($section->{text}, $responseValuesByVariableName);
+    $section->{text} = $self->getTemplatedText($section->{text}, \%templateValues);
 
     # Collect all the questions to be shown on the next page..
     my @questions;
+    QUESTION:
     for my $i (1 .. $questionsPerPage ) {
         my $address = $self->surveyOrder->[ $self->lastResponse + $i ];
         last if(! defined $address);
@@ -931,11 +1163,20 @@ sub nextQuestions {
             last;
         }
 
+        # In rare cases where you change the structure of your survey after 
+        # someone has already started a response, it's possible for this
+        # to be triggered, in which case the easiest course of action is
+        # to just skip over the question.
+        if (!$self->survey->question( $address )) {
+            $self->session->log->debug("Unable to retrieve question for address $sIndex-$qIndex");
+            next;
+        }
+
         # Make a safe copy of the question
         my %questionCopy = %{$self->survey->question( $address )};
 
         # Do text replacement
-        $questionCopy{text} = $self->getTemplatedText($questionCopy{text}, $responseValuesByVariableName);
+        $questionCopy{text} = $self->getTemplatedText($questionCopy{text}, \%templateValues);
 
         # Add any extra fields we want..
         $questionCopy{id}  = $self->questionId($sIndex, $qIndex);
@@ -943,17 +1184,58 @@ sub nextQuestions {
 
         # Rebuild the list of anwers with a safe copy
         delete $questionCopy{answers};
-        for my $aIndex ( aIndexes($address) ) {
-            my %answerCopy = %{ $self->survey->answer( [ $sIndex, $qIndex, $aIndex ] ) };
+        
+        if ($questionCopy{questionType} eq 'Tagged') {
+            if (!$questionCopy{variable}) {
+                $self->session->log->warn("Unable to build Tagged question, question variable must be defined");
+                next QUESTION;
+            }
+            
+            my $tags = $self->tags;
+            my $taggedAnswers = $tags->{"$questionCopy{variable}_TAGGED_ANSWERS"};
+            if (!$taggedAnswers || ref $taggedAnswers ne 'ARRAY') {
+                $self->session->log->warn("Unable to build Tagged question, $questionCopy{variable}_TAGGED_ANSWERS is invalid");
+                next QUESTION;
+            }
+            
+            my $aIndex = 0;
+            for my $taggedAnswer (@$taggedAnswers) {
+                
+                if (!$taggedAnswer || ref $taggedAnswer ne 'HASH') {
+                    $self->session->log->warn("Unable to build Tagged question, one or more answers definitions invalid");
+                    next QUESTION;
+                }
+                
+                # Tagged data overrides answer defaults
+                my %answerCopy = (%{$self->survey->newAnswer()}, %$taggedAnswer);
+                
+                # Do text replacement
+                $answerCopy{text} = $self->getTemplatedText($answerCopy{text}, \%templateValues);
 
-            # Do text replacement
-            $answerCopy{text} = $self->getTemplatedText($answerCopy{text}, $responseValuesByVariableName);
+                # Add any extra fields we want..
+                $answerCopy{id} = $self->answerId($sIndex, $qIndex, $aIndex);
+                
+                push @{ $questionCopy{answers} }, \%answerCopy;
+                
+                $aIndex++;
+            }
+        } else {
+            for my $aIndex ( aIndexes($address) ) {
+                my %answerCopy 
+                    = %{  $self->survey->answer( [ $sIndex, $qIndex, $aIndex ] ) 
+                        || $self->survey->newAnswer # in case the lookup fails, use a default answer
+                        };
 
-            # Add any extra fields we want..
-            $answerCopy{id} = $self->answerId($sIndex, $qIndex, $aIndex);
+                # Do text replacement
+                $answerCopy{text} = $self->getTemplatedText($answerCopy{text}, \%templateValues);
 
-            push @{ $questionCopy{answers} }, \%answerCopy;
+                # Add any extra fields we want..
+                $answerCopy{id} = $self->answerId($sIndex, $qIndex, $aIndex);
+
+                push @{ $questionCopy{answers} }, \%answerCopy;
+            }
         }
+        
         push @questions, \%questionCopy;
     }
     return @questions;
@@ -1272,11 +1554,11 @@ Answer keys are constructed by hypenating the relevant L<"sIndex">, L<"qIndex"> 
          comment => "question comment",
      },
      # ...
-     # Answers entries contain: value (the recorded value), time and comment fields.
+     # Answers entries contain: value (the recorded value), time and verbatim field.
      '0-0-0' => {
          value   => "recorded answer value",
          time    => time(),
-         comment => "answer comment",
+         verbatim => "answer verbatim",
     },
     # ...
  }

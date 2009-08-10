@@ -134,7 +134,7 @@ sub authenticate {
 	my $uid = $user->{userId};
 	#If userId does not exist or is not active, fail login
 	if (!$uid) {
-		$self->error($i18n->get(68));
+		$self->authenticationError;
 		return 0;
 	} elsif($user->{status} ne 'Active') {
 		$self->error($i18n->get(820));
@@ -145,6 +145,23 @@ sub authenticate {
 	#Set User Id
 	$self->user(WebGUI::User->new($self->session,$uid));
 	return 1;
+}
+
+#-------------------------------------------------------------------
+
+=head2 authenticationError
+
+This subroutine is called by authenticate and its subclasses to make
+sure these subroutines return the same errormessage on login failure.
+Different errormessages would reveil if a username exists after
+which only the password has to be guessed by brute force for example.
+
+=cut
+
+sub authenticationError {
+	my $self = shift;
+	my $i18n = WebGUI::International->new($self->session);
+	return ($self->error('<li>'.$i18n->get(68).'</li>'));
 }
 
 #-------------------------------------------------------------------
@@ -819,6 +836,9 @@ sub login {
         ) {
             return $self->showMessageOnLogin;
         }
+        elsif ( $self->session->setting->get("redirectAfterLoginUrl") ) {
+        $self->session->http->setRedirect($self->session->setting->get("redirectAfterLoginUrl"));
+        }
         elsif ( $self->session->form->get('returnUrl') ) {
 		$self->session->http->setRedirect( $self->session->form->get('returnUrl') );
 	  	$self->session->scratch->delete("redirectAfterLogin");
@@ -997,6 +1017,7 @@ sub showMessageOnLogin {
 
     # Add the link to continue
     my $redirectUrl =  $self->session->form->get( 'returnUrl' )
+                    || $self->session->setting->get("redirectAfterLoginUrl")
                     || $self->session->scratch->get( 'redirectAfterLogin' )
                     || $self->session->url->getSiteURL . $self->session->url->gateway()
                     ;

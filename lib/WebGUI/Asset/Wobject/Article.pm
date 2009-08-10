@@ -125,6 +125,7 @@ sub definition {
 				fieldType=>"image",
 				deleteFileUrl=>$session->url->page("func=deleteFile;filename="),
 				maxAttachments=>2,
+                persist => 1,
 				defaultValue=>undef,
 				label=>$i18n->get("attachments"),
 				hoverHelp=>$i18n->get("attachments help")
@@ -224,15 +225,22 @@ See WebGUI::Asset::prepareView() for details.
 =cut
 
 sub prepareView {
-	my $self = shift;
-	$self->SUPER::prepareView();
-	my $templateId = $self->get("templateId");
-        if ($self->session->form->process("overrideTemplateId") ne "") {
-                $templateId = $self->session->form->process("overrideTemplateId");
-        }
-	my $template = WebGUI::Asset::Template->new($self->session, $templateId);
-	$template->prepare($self->getMetaDataAsTemplateVariables);
-	$self->{_viewTemplate} = $template;
+    my $self = shift;
+    $self->SUPER::prepareView();
+    my $templateId = $self->get("templateId");
+    if ($self->session->form->process("overrideTemplateId") ne "") {
+        $templateId = $self->session->form->process("overrideTemplateId");
+    }
+    my $template = WebGUI::Asset::Template->new($self->session, $templateId);
+    if (!$template) {
+        WebGUI::Error::ObjectNotFound::Template->throw(
+            error      => qq{Template not found},
+            templateId => $templateId,
+            assetId    => $self->getId,
+        );
+    }
+    $template->prepare($self->getMetaDataAsTemplateVariables);
+    $self->{_viewTemplate} = $template;
 }
 
 #-------------------------------------------------------------------

@@ -262,6 +262,22 @@ sub definition {
         label           => $i18n->get('recaptcha private key'),
         defaultValue    => $setting->get('recaptchaPrivateKey'),
     });
+    push @fields, {
+        tab             => "ui",
+        fieldType       => "codearea",
+        name            => "globalHeadTags",
+        label           => $i18n->get('global head tags label'),
+        hoverHelp       => $i18n->get('global head tags description'),
+        defaultValue    => $setting->get('globalHeadTags'),
+    };
+    push @fields, {
+        tab             => 'ui',
+        fieldType       => 'yesNo',
+        name            => 'useMobileStyle',
+        label           => $i18n->get('mobile style label'),
+        hoverHelp       => $i18n->get('mobile style description'),
+        defaultValue    => $setting->get('useMobileStyle'),
+    };
 	# messaging settings
 	push(@fields, {
 		tab=>"messaging",
@@ -295,6 +311,14 @@ sub definition {
 		hoverHelp=>$i18n->get('inboxMessageEncryption help'),
 		table=>'inbox',
 		field=>'message',
+        });
+	push(@fields, {
+		tab          => 'messaging',
+		fieldType    => 'email',
+		name         => 'smsGateway',
+		label        => $i18n->get('sms gateway'),
+		hoverHelp    => $i18n->get('sms gateway help'),
+		defaultValue => $setting->get('smsGateway'),
         });
 	# misc
 	push(@fields, {
@@ -439,6 +463,14 @@ sub definition {
 		});
     push @fields, {
         tab             => "user",
+        name            => "redirectAfterLoginUrl",
+        fieldType       => "url",
+        defaultValue    => $setting->get('redirectAfterLoginUrl'),
+        label           => $i18n->get( 'redirectAfterLoginUrl label' ),
+        hoverHelp       => $i18n->get( 'redirectAfterLoginUrl description' ),
+    };
+    push @fields, {
+        tab             => "user",
         name            => "showMessageOnLogin",
         fieldType       => "yesNo",
         defaultValue    => $setting->get('showMessageOnLogin'),
@@ -491,6 +523,7 @@ sub definition {
         groupIdAdminCache
         groupIdAdminCron
         groupIdAdminDatabaseLink
+        groupIdAdminFilePump
         groupIdAdminGraphics
         groupIdAdminGroup
         groupIdAdminGroupAdmin
@@ -647,7 +680,7 @@ is in group Admin (3).  Returns the user to the Edit Settings screen, www_editSe
 
 sub www_saveSettings {
     my $session     = shift;
-    return $session->privilege->adminOnly() unless ($session->user->isAdmin);
+    return $session->privilege->adminOnly() unless ($session->user->isAdmin && $session->form->validToken);
     my $i18n        = WebGUI::International->new($session, "WebGUI");
     my $setting     = $session->setting;
     my $form        = $session->form;

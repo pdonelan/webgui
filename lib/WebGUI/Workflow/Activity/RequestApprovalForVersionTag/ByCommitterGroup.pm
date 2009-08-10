@@ -45,7 +45,7 @@ These methods are available from this class:
 
 =head2 definition ( session, definition )
 
-See WebGUI::Workflow::Activity::defintion() for details.
+See WebGUI::Workflow::Activity::definition() for details.
 
 =cut 
 
@@ -62,6 +62,12 @@ sub definition {
                 defaultValue    => 0,
                 label           => $i18n->get( 'committerGroupId label' ),
                 hoverHelp       => $i18n->get( 'committerGroupId description' ),
+            },
+            invertGroupSetting => {
+                fieldType       => "yesNo",
+                defaultValue    => 0,
+                label           => $i18n->get( 'invertGroupSetting label' ),
+                hoverHelp       => $i18n->get( 'invertGroupSetting description' ),
             },
         },
     };
@@ -86,7 +92,8 @@ sub execute {
     my $committedBy = WebGUI::User->new( $self->session, $tag->get( 'committedBy' ) );
 
     # If tag is handled by this activity
-    if ( $committedBy->isInGroup( $self->get( 'committerGroupId' ) ) ) {
+    if ( (!$self->get( 'invertGroupSetting' ) && $committedBy->isInGroup( $self->get( 'committerGroupId' ) ) )
+      || ($self->get( 'invertGroupSetting' ) && !$committedBy->isInGroup( $self->get( 'committerGroupId' ) ) ) ) {
         return $self->SUPER::execute( $tag, $instance );
     }
     else {

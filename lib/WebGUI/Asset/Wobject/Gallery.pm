@@ -437,12 +437,12 @@ sub appendTemplateVarsSearchForm {
     $var->{ searchForm_creationDate_after }
         = WebGUI::Form::dateTime( $session, {
             name        => "creationDate_after",
-            value       => $form->get("creationDate_after","dateTime") || $oneYearAgo,
+            value       => $form->get("creationDate_after",  "dateTime", $oneYearAgo),
         });
     $var->{ searchForm_creationDate_before }
         = WebGUI::Form::dateTime( $session, {
             name        => "creationDate_before",
-            value       => $form->get("creationDate_before","dateTime"),
+            value       => $form->get("creationDate_before", "dateTime", time()),
         });
 
     # Buttons
@@ -1001,6 +1001,13 @@ sub prepareViewListAlbums {
     my $self        = shift;
     my $template 
         = WebGUI::Asset::Template->new($self->session, $self->get("templateIdListAlbums"));
+    if (!$template) {
+        WebGUI::Error::ObjectNotFound::Template->throw(
+            error      => qq{Template not found},
+            templateId => $self->get("templateIdListAlbums"),
+            assetId    => $self->getId,
+        );
+    }
     $template->prepare($self->getMetaDataAsTemplateVariables);
     $self->{_viewTemplate} = $template;
 }
@@ -1369,8 +1376,9 @@ search and display the results if necessary.
 
 sub www_search {
     my $self        = shift;
-    my $form        = $self->session->form;
-    my $db          = $self->session->db;
+    my $session     = $self->session;
+    my $form        = $session->form;
+    my $db          = $session->db;
 
     my $var         = $self->getTemplateVars;
     # NOTE: Search form is added as part of getTemplateVars()
@@ -1413,8 +1421,9 @@ sub www_search {
                         ;
         }
 
-        my $dateAfter  = $form->get("creationDate_after", "dateTime");
-        my $dateBefore = $form->get("creationDate_before", "dateTime");
+        my $oneYearAgo = WebGUI::DateTime->new( $session, time )->add( years => -1 )->epoch;
+        my $dateAfter  = $form->get("creationDate_after", "dateTime", $oneYearAgo);
+        my $dateBefore = $form->get("creationDate_before", "dateTime", time());
         my $creationDate = {};
         if ($dateAfter) {
             $creationDate->{start} = $dateAfter;
@@ -1442,8 +1451,8 @@ sub www_search {
                 . 'keywords=' . $form->get('keywords') . ';'
                 . 'title=' . $form->get('title') . ';'
                 . 'description=' . $form->get('description') . ';'
-                . 'creationDate_after=' . $form->get('creationDate_after') . ';'
-                . 'creationDate_before=' . $form->get('creationDate_before') . ';'
+                . 'creationDate_after=' . $dateAfter . ';'
+                . 'creationDate_before=' . $dateBefore . ';'
                 . 'userId=' . $form->get("userId") . ';'
             );
         for my $class ( @$joinClass ) {
@@ -1463,7 +1472,7 @@ sub www_search {
 
         $p->appendTemplateVars( $var );
         for my $result ( @{ $p->getPageData } ) {
-            my $asset   = WebGUI::Asset->newByDynamicClass( $self->session, $result->{assetId} );
+            my $asset   = WebGUI::Asset->newByDynamicClass( $session, $result->{assetId} );
             push @{ $var->{search_results} }, {
                 %{ $asset->getTemplateVars },
                 isAlbum     => $asset->isa( 'WebGUI::Asset::Wobject::GalleryAlbum' ),

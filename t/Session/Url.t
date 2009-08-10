@@ -52,7 +52,7 @@ my @getRefererUrlTests = (
 
 use Test::More;
 use Test::MockObject::Extends;
-plan tests => 72 + scalar(@getRefererUrlTests);
+plan tests => 81 + scalar(@getRefererUrlTests);
 
 my $session = WebGUI::Test->session;
 
@@ -284,6 +284,12 @@ is($session->url->makeAbsolute('page1'), '/page1', 'makeAbsolute: default baseUr
 my $origExtras = $session->config->get('extrasURL');
 my $extras  = $origExtras;
 
+my $savecdn = $session->config->get('cdn');
+if ($savecdn) {
+    $session->config->delete('cdn');
+}
+# Note: the CDN configuration will be reverted in the END
+
 is($session->url->extras, $extras.'/', 'extras method returns URL to extras with a trailing slash');
 is($session->url->extras('foo.html'), join('/', $extras,'foo.html'), 'extras method appends to the extras url');
 is($session->url->extras('/foo.html'), join('/', $extras,'foo.html'), 'extras method removes extra slashes');
@@ -301,7 +307,33 @@ $session->config->set('extrasURL', $extras);
 is($session->url->extras('/foo.html'),       join('', $extras,'foo.html'),      'extras method removes extra slashes');
 is($session->url->extras('/dir1//foo.html'), join('', $extras,'dir1/foo.html'), 'extras method removes extra slashes anywhere');
 
+$extras = 'http://mydomain.com/';
+$session->config->set('extrasURL', $extras);
+
+my $cdnCfg = { "enabled"       => 1,
+               "extrasCdn"     => "http://extras.example.com/",
+               "extrasSsl"     => "https://ssl.example.com/",
+               "extrasExclude" => ["^tiny"]
+             };
+$session->config->set('cdn', $cdnCfg);
+is($session->url->extras('/dir1/foo.html'), join('', $cdnCfg->{extrasCdn}, 'dir1/foo.html'),
+   'extras cleartext with CDN');
+is($session->url->extras('tinymce'), join('', $extras, 'tinymce'),
+   'extras exclusion from CDN');
+# Note: env is already mocked above.
+$mockEnv{HTTPS} = 'on';
+is($session->url->extras('/dir1/foo.html'), join('', $cdnCfg->{extrasSsl}, 'dir1/foo.html'),
+   'extras using extrasSsl with HTTPS');
+$mockEnv{HTTPS} = undef;
+$mockEnv{SSLPROXY} = 1;
+is($session->url->extras('/dir1/foo.html'), join('', $cdnCfg->{extrasSsl}, 'dir1/foo.html'),
+   'extras using extrasSsl with SSLPROXY');
+delete $mockEnv{SSLPROXY};
+
 $session->config->set('extrasURL', $origExtras);
+
+# partial cleanup here; complete cleanup in END block
+$session->config->delete('cdn');
 
 #######################################
 #
@@ -327,8 +359,13 @@ is($unEscapedString, '10% is enough!', 'unescape method');
 #######################################
 
 is($session->url->urlize('HOME/PATH1'), 'home/path1', 'urlize: urls are lower cased');
-is($session->url->urlize('home/'), 'home', 'urlize: trailing slashes removed');
-is($session->url->urlize('home is where the heart is'), 'home-is-where-the-heart-is', 'urlize: makeCompliant translates spaces to dashes');
+is($session->url->urlize('home/'), 'home', '... trailing slashes removed');
+is($session->url->urlize('home is where the heart is'), 'home-is-where-the-heart-is', '... makeCompliant translates spaces to dashes');
+is($session->url->urlize('/home'), 'home', '... removes initial slash');
+is($session->url->urlize('home/../out-of-bounds'),    'home/out-of-bounds', '... removes multiple ../');
+is($session->url->urlize('home/./here'),              'home/here', '... removes multiple ./');
+is($session->url->urlize('home/../../out-of-bounds'), 'home/out-of-bounds', '... removes multiple ../');
+is($session->url->urlize('home/././here'),            'home/here', '... removes multiple ./');
 
 #######################################
 #
@@ -467,5 +504,10 @@ END {  ##Always clean-up
 	}
 	else {
 		$session->config->delete('webServerPort');
+	}
+	if ($savecdn) {
+	   $session->config->set('cdn', $savecdn);
+	} else {
+	   $session->config->delete('cdn');
 	}
 }

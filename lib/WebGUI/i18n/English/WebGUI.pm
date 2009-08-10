@@ -995,6 +995,8 @@ to add or remove users from their groups.
 	'head.tags' => {
 		message => q|Tags that WebGUI automatically generates for you so that caching works the way it should, search engines can find you better, and other useful automated functionality. This should go in the &lt;head&gt; &lt;/head&gt; section of your style.
 <br />
+<br />NOTE: This is for backwards-compatibility only. You should use 'head_attachments' and 'body_attachments' now.
+<br />
 <br />We suggest using something like this in the &lt;title&gt; &lt;/title&gt; portion of your style:
 <br />
 <br />&#94;PageTitle(); - &#94;c();
@@ -1002,6 +1004,19 @@ to add or remove users from their groups.
 <br />That particular example will help you get good ranking on search engines.|,
 		lastUpdated => 1225222473,
 	},
+
+    'head_attachments' => {
+        message     => q{Tags that belong only in the &lt;head&gt; of the document. If you use this, you must use body_attachments and must not use head.tags.},
+        lastUpdated => 0,
+        context     => 'description of template variable',
+    },
+
+    'body_attachments' => {
+        message     => q{Tags that can be placed right before the end of the &lt;body&gt; to speed up page load times. If you use this, you must use head_attachments and must not use head.tags.},
+        lastUpdated => 0,
+        context     => 'description of template variable',
+    },
+
 
 	'860' => {
 		message => q|Make email address public?|,
@@ -3118,6 +3133,141 @@ or are under your current version tag.</p>
 		lastUpdated =>1118453709,
         },
 
+	'admin console template variables' => {
+		message => q|Admin Console Template Variables|,
+		lastUpdated =>1247528069,
+    },
+
+	'formHeader' => {
+		message => q|HTML code to start a form.|,
+		lastUpdated =>1247529885,
+    },
+
+	'formFooter' => {
+		message => q|HTML code to end a form.|,
+		lastUpdated =>1247529885,
+    },
+
+	'application_loop' => {
+		message => q|A loop containing all admin applications.|,
+		lastUpdated =>1247529885,
+    },
+
+	'application.workarea' => {
+		message => q|The rendered application screen.|,
+		lastUpdated =>1247529885,
+    },
+
+	'application.title' => {
+		message => q|The title of the application.|,
+		lastUpdated =>1247529885,
+    },
+
+	'application.icon' => {
+		message => q|The URL to this application's icon.|,
+		lastUpdated =>1247529885,
+    },
+
+	'application.icon.small' => {
+		message => q|The URL to this application's icon, the small version.|,
+		lastUpdated =>1247529885,
+    },
+
+	'application.canUse' => {
+		message => q|A boolean that will be true if the current user can use this application, based on group privileges and uiLevel.|,
+		lastUpdated =>1247529885,
+    },
+
+	'application.url' => {
+		message => q|The URL to this screen.|,
+		lastUpdated =>1247529885,
+    },
+
+	'backtosite.label' => {
+		message => q|An internationalized label for the link that returns the user back to the website from the Admin Console.|,
+		lastUpdated =>1247529885,
+    },
+
+	'backtosite.url' => {
+		message => q|The URL for the link to take the user back to the website, from the Admin Console.|,
+		lastUpdated =>1247529885,
+    },
+
+	'toggle.on.label' => {
+		message => q|An internationalized label for the link that displays the Admin console.|,
+		lastUpdated =>1247529885,
+    },
+
+	'toggle.off.label' => {
+		message => q|An internationalized label for the link that hides the Admin console.|,
+		lastUpdated =>1247529885,
+    },
+
+	'submenu_loop' => {
+		message => q|A loop contains a set of links for the submenu panel.|,
+		lastUpdated =>1247529885,
+    },
+
+	'submenu.label' => {
+		message => q|A label for the link.|,
+		lastUpdated =>1247529885,
+    },
+
+	'submenu.url' => {
+		message => q|The URL for the link.|,
+		lastUpdated =>1247529885,
+    },
+
+	'submenu.extras' => {
+		message => q|Any extra parameters for the link, like javascript for a confirmation.|,
+		lastUpdated =>1247529885,
+    },
+
+	'console.title' => {
+		message => q|The admin console's title.|,
+		lastUpdated =>1247529885,
+    },
+
+	'console.icon' => {
+		message => q|The admin console's icon.|,
+		lastUpdated =>1247529885,
+    },
+
+	'console.canUse' => {
+		message => q|A boolean that will be true if the current user can use the admin console, based on group privileges and uiLevel.|,
+		lastUpdated =>1247529885,
+    },
+
+	'console.url' => {
+		message => q|The URL to the admin console.|,
+		lastUpdated =>1247529885,
+    },
+
+	'help.url' => {
+		message => q|The URL to view the help associated with this application, if any.|,
+		lastUpdated =>1247529885,
+    },
+
+	'versionTags' => {
+		message => q|A loop containing information about open version tags.|,
+		lastUpdated =>1247529885,
+    },
+
+	'versionTags.title' => {
+		message => q|The title of this version tag.|,
+		lastUpdated =>1247529885,
+    },
+
+	'versionTags.url' => {
+		message => q|If this version tag is the current tag for the user, then this link will be to commit the tag.  Otherwise, it will be to make this tag the current tag for the user.|,
+		lastUpdated =>1247529885,
+    },
+
+	'versionTags.icon' => {
+		message => q|If this tag is the current tag for the user, this will contain the URL to a small version of the version tags admin console icon.|,
+		lastUpdated =>1248190349,
+    },
+
 	'settings' => {
 		message => q|Settings|,
 		lastUpdated =>1092930637,
@@ -3734,7 +3884,6 @@ LongTruncOk=1</p>
         lastUpdated => 0,
     },
 
-
     'settings groupIdAdminAdSpace label' => {
         message     => q{AdSpace},
         lastUpdated => 0,
@@ -3776,6 +3925,15 @@ LongTruncOk=1</p>
     },
 
 
+    'settings groupIdAdminFriends label' => {
+        message     => q{Friends},
+        lastUpdated => 0,
+    },
+    'settings groupIdAdminFriends hoverHelp' => {
+        message     => q{Group to manage friends.},
+        lastUpdated => 0,
+    },
+
     'settings groupIdAdminGraphics label' => {
         message     => q{Graphics},
         lastUpdated => 0,
@@ -3795,6 +3953,15 @@ LongTruncOk=1</p>
         lastUpdated => 0,
     },
 
+    'settings groupIdAdminFilePump label' => {
+        message     => q{File Pump},
+        lastUpdated => 0,
+    },
+    'settings groupIdAdminFilePump hoverHelp' => {
+        message     => q{Group to access and manage File Pump bundles.},
+        lastUpdated => 0,
+    },
+
 
     'settings groupIdAdminGroupAdmin label' => {
         message     => q{Groups (limited)},
@@ -3802,6 +3969,15 @@ LongTruncOk=1</p>
     },
     'settings groupIdAdminGroupAdmin hoverHelp' => {
         message     => q{Group to manage groups that user is administrator of.},
+        lastUpdated => 0,
+    },
+
+    'settings groupIdAdminHistory label' => {
+        message     => q{Asset History},
+        lastUpdated => 0,
+    },
+    'settings groupIdAdminHistory hoverHelp' => {
+        message     => q{Group allowed to access the Asset History Browser.},
         lastUpdated => 0,
     },
 
@@ -3973,6 +4149,18 @@ LongTruncOk=1</p>
         message     => q{Attachments},
         lastUpdated => 1202274234,
     },
+
+        'redirectAfterLoginUrl label' => {
+            message     => q{Redirect After Login Url},
+            lastUpdated => 0,
+            context     => q{Label for site setting},
+        },
+
+        'showMessageOnLogin description' => {
+            message     => q{Users will be redirected to this url after logging in.},
+            lastUpdated => 0,
+            context     => q{Description for site setting},
+        },
 
         'showMessageOnLogin label' => {
             message     => q{Show Message On Login?},
@@ -4332,18 +4520,23 @@ Users may override this setting in their profile.
         },
 
         'use recaptcha' => {
-            message     => q{Use reCAPTCHA?}
+            message     => q{Use reCAPTCHA?},
+            lastUpdated => 0,
         },
         'use recaptcha description' => {
-            message     => q{reCAPTCHA is a free CAPTCHA service that helps to digitize books.  It requires a key set generated for your domain, available from <a href="http://recaptcha.net/">http://recaptcha.net/</a>.}
+            message     => q{reCAPTCHA is a free CAPTCHA service that helps to digitize books.  It requires a key set generated for your domain, available from <a href="http://recaptcha.net/">http://recaptcha.net/</a>.},
+            lastUpdated => 0,
         },
 
         'recaptcha private key' => {
-            message     => 'reCAPTCHA Private Key'
+            message     => 'reCAPTCHA Private Key',
+            lastUpdated => 0,
         },
         'recaptcha public key' => {
-            message     => 'reCAPTCHA Public Key'
+            message     => 'reCAPTCHA Public Key',
+            lastUpdated => 0,
         },
+
 	'Ad Space control name' => {
 		message => q|Ad Space|,
 		lastUpdated => 0,
@@ -4360,6 +4553,85 @@ Users may override this setting in their profile.
 	'inboxMessageEncryption help' => {
 		message => q|Select the encryption provder to use to encrypt inbox messages. Select None if no encryption is desired|,
 		lastUpdated => 0
+    },
+
+    'global head tags label' => {
+        message     => 'Global Head Tags',
+        lastUpdated => 0,
+        context     => "Label for setting",
+    },
+    'global head tags description' => { 
+        message     => '<head> tags for every page on the site (including admin pages)',
+        lastUpdated => 0,
+        context     => 'Description of setting',
+    },
+
+ 	'sms gateway' => {
+ 		message => q|SMS gateway|,
+ 		context => q|email to SMS/text email address for this site.|,
+ 		lastUpdated => 1235685248,
+ 	},
+
+ 	'sms gateway help' => {
+ 		message => q|The email address that this site would use to send an SMS message.|,
+ 		lastUpdated => 1235695517,
+ 	},
+ 
+    'Select One' => {
+        message => q|Select One|,
+        context => q|Label in dropdown lists, indicating that the user should use the list to select 1 entry.  It is implied that if nothing is chosen, that nothing will happen.|,
+        lastUpdated => 1239057119,
+    },
+
+    'mobile style label' => {
+        message => 'Use Mobile Style',
+    },
+    'mobile style description' => {
+        message => q{Enables displaying using a mobile style template and mobile page layout template.  When enabled, the alternate templates are used when the browser's user agent string matches the list set in the config file.},
+    },
+
+    'receive inbox emails' => {
+        message => q|Receive inbox notifications as email?|,
+        context => q|Label in profile field|,
+        lastUpdated => 1242438242,
+    },
+
+    'receive inbox sms' => {
+        message => q|Receive inbox notifications as SMS?|,
+        context => q|Label in profile field|,
+        lastUpdated => 1242438244,
+    },
+
+    'activate user' => {
+        message => 'Activate User',
+        lastUpdated => 0,
+    },
+
+    'deactivate user' => {
+        message => 'Deactivate User',
+        lastUpdated => 0,
+    },
+
+    'delete user' => {
+        message => 'Delete User',
+        lastUpdated => 0,
+    },
+
+    'Working...' => {
+        message => 'Working...',
+        lastUpdated => 0,
+    },
+
+    'csrfToken' => {
+        message => 'CSRF Token',
+        lastUpdated => 0,
+        context => 'CSRF = Cross Site Request Forgery, token is a piece of identification',
+    },
+
+    'Clear' => {
+        message => 'Clear',
+        lastUpdated => 0,
+        context => 'To empty or wipe-out, similar to erase.',
     },
 
 };

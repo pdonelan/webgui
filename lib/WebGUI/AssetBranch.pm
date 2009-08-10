@@ -146,7 +146,6 @@ sub www_editBranch {
 		-value=>$self->getValue("styleTemplateId"),
 		-hoverHelp=>$i18n2->get('1073 description'),
 		-namespace=>'style',
-		-afterEdit=>'op=editPage;npp='.$self->session->form->process("npp"),
 		-subtext=>'<br />'.$i18n->get("change").' '.WebGUI::Form::yesNo($self->session,{name=>"change_styleTemplateId"})
 		);
          $tabform->getTab("display")->template(
@@ -155,9 +154,19 @@ sub www_editBranch {
 		-hoverHelp=>$i18n2->get('1079 description'),
 		-value=>$self->getValue("printableStyleTemplateId"),
 		-namespace=>'style',
-		-afterEdit=>'op=editPage;npp='.$self->session->form->process("npp"),
 		-subtext=>'<br />'.$i18n->get("change").' '.WebGUI::Form::yesNo($self->session,{name=>"change_printableStyleTemplateId"})
 		);
+        if ( $self->session->setting->get('useMobileStyle') ) {
+            $tabform->getTab("display")->template(
+                name        => 'mobileStyleTemplateId',
+                label       => $i18n2->get('mobileStyleTemplateId label'),
+                hoverHelp   => $i18n2->get('mobileStyleTemplateId description'),
+                value       => $self->getValue('mobileStyleTemplateId'),
+                namespace   => 'style',
+                subtext     => '<br />' . $i18n->get('change') . q{ }
+                    . WebGUI::Form::yesNo($self->session,{name=>"change_mobileStyleTemplateId"}),
+            );
+        }
 	$tabform->addTab("security",$i18n->get(107),6);
         if ($self->session->config->get("sslEnabled")) {
             $tabform->getTab("security")->yesNo(
@@ -214,6 +223,7 @@ sub www_editBranch {
                         $options = "|" . $i18n->get("Select") . "\n" . $options;
                     }
                     $tabform->getTab("meta")->dynamicField(
+                        fieldType       => $fieldType,
                         name            => "metadata_".$meta->{$field}{fieldId},
                         label           => $meta->{$field}{fieldName},
                         uiLevel         => 5,
@@ -230,59 +240,71 @@ sub www_editBranch {
 
 #-------------------------------------------------------------------
 
-=head2 www_editBranchSave ( )
+=head2 www_editBranchSaveStatus ( )
 
 Verifies proper inputs in the Asset Tree and saves them. Returns ManageAssets method. If canEdit returns False, returns an insufficient privilege page.
 
 =cut
 
 sub www_editBranchSave {
-	my $self = shift;
-	return $self->session->privilege->insufficient() unless ($self->canEdit && $self->session->user->isInGroup('4'));
-	my %data;
-	$data{isHidden} = $self->session->form->yesNo("isHidden") if ($self->session->form->yesNo("change_isHidden"));
-	$data{newWindow} = $self->session->form->yesNo("newWindow") if ($self->session->form->yesNo("change_newWindow"));
-	$data{encryptPage} = $self->session->form->yesNo("encryptPage") if ($self->session->form->yesNo("change_encryptPage"));
-	$data{ownerUserId} = $self->session->form->selectBox("ownerUserId") if ($self->session->form->yesNo("change_ownerUserId"));
-	$data{groupIdView} = $self->session->form->group("groupIdView") if ($self->session->form->yesNo("change_groupIdView"));
-	$data{groupIdEdit} = $self->session->form->group("groupIdEdit") if ($self->session->form->yesNo("change_groupIdEdit"));
-	$data{extraHeadTags} = $self->session->form->group("extraHeadTags") if ($self->session->form->yesNo("change_extraHeadTags"));
+    my $self    = shift;
+    my $session = $self->session;
+    return $session->privilege->insufficient() unless ($self->canEdit && $session->user->isInGroup('4'));
+    my $form    = $session->form;
+    my %data;
+    my $pb      = WebGUI::ProgressBar->new($session);
+    my $i18n    = WebGUI::International->new($session, 'Asset');
+    $data{isHidden}      = $form->yesNo("isHidden")        if ($form->yesNo("change_isHidden"));
+    $data{newWindow}     = $form->yesNo("newWindow")       if ($form->yesNo("change_newWindow"));
+    $data{encryptPage}   = $form->yesNo("encryptPage")     if ($form->yesNo("change_encryptPage"));
+    $data{ownerUserId}   = $form->selectBox("ownerUserId") if ($form->yesNo("change_ownerUserId"));
+    $data{groupIdView}   = $form->group("groupIdView")     if ($form->yesNo("change_groupIdView"));
+    $data{groupIdEdit}   = $form->group("groupIdEdit")     if ($form->yesNo("change_groupIdEdit"));
+    $data{extraHeadTags} = $form->group("extraHeadTags")   if ($form->yesNo("change_extraHeadTags"));
     my %wobjectData = %data;
-    $wobjectData{displayTitle} = $self->session->form->yesNo("displayTitle")
-        if ($self->session->form->yesNo("change_displayTitle"));
-    $wobjectData{styleTemplateId} = $self->session->form->template("styleTemplateId")
-        if ($self->session->form->yesNo("change_styleTemplateId"));
-    $wobjectData{printableStyleTemplateId} = $self->session->form->template("printableStyleTemplateId")
-        if ($self->session->form->yesNo("change_printableStyleTemplateId"));
-	my ($urlBaseBy, $urlBase, $endOfUrl);
-	my $changeUrl = $self->session->form->yesNo("change_url");
-	if ($changeUrl) {
-		$urlBaseBy = $self->session->form->selectBox("baseUrlBy");
-		$urlBase = $self->session->form->text("baseUrl");
-		$endOfUrl = $self->session->form->selectBox("endOfUrl");
-	}
-	my $descendants = $self->getLineage(["self","descendants"],{returnObjects=>1});	
-	foreach my $descendant (@{$descendants}) {
-		next unless $descendant->canEdit;
-		my $url;
-		if ($changeUrl) {
-			if ($urlBaseBy eq "parentUrl") {
-				delete $descendant->{_parent};
-				$data{url} = $descendant->getParent->get("url")."/";
-			} elsif ($urlBaseBy eq "specifiedBase") {
-				$data{url} = $urlBase."/";
-			} else {
-				$data{url} = "";
-			}
-			if ($endOfUrl eq "menuTitle") {
-				$data{url} .= $descendant->get("menuTitle");
-			} elsif ($endOfUrl eq "title") {
-				$data{url} .= $descendant->get("title");
-			} else {
-				$data{url} .= $descendant->get("url");
-			}
+    $wobjectData{displayTitle} = $form->yesNo("displayTitle")
+        if ($form->yesNo("change_displayTitle"));
+    $wobjectData{styleTemplateId} = $form->template("styleTemplateId")
+        if ($form->yesNo("change_styleTemplateId"));
+    $wobjectData{printableStyleTemplateId} = $form->template("printableStyleTemplateId")
+        if ($form->yesNo("change_printableStyleTemplateId"));
+    $wobjectData{mobileStyleTemplateId} = $form->template("mobileStyleTemplateId")
+        if ($form->yesNo("change_mobileStyleTemplateId"));
+
+    my ($urlBaseBy, $urlBase, $endOfUrl);
+    my $changeUrl  = $form->yesNo("change_url");
+    if ($changeUrl) {
+        $urlBaseBy = $form->selectBox("baseUrlBy");
+        $urlBase   = $form->text("baseUrl");
+        $endOfUrl  = $form->selectBox("endOfUrl");
+    }
+    $pb->start($i18n->get('edit branch'), $session->url->extras('adminConsole/assets.gif'));
+    my $descendants = $self->getLineage(["self","descendants"],{returnObjects=>1});	
+    DESCENDANT: foreach my $descendant (@{$descendants}) {
+        if ( !$descendant->canEdit ) {
+            $pb->update(sprintf $i18n->get('skipping %s'), $descendant->getTitle);
+            next DESCENDANT;
+        }
+        $pb->update(sprintf $i18n->get('editing %s'), $descendant->getTitle);
+        my $url;
+        if ($changeUrl) {
+            if ($urlBaseBy eq "parentUrl") {
+                delete $descendant->{_parent};
+                $data{url} = $descendant->getParent->get("url")."/";
+            } elsif ($urlBaseBy eq "specifiedBase") {
+                $data{url} = $urlBase."/";
+            } else {
+                $data{url} = "";
+            }
+            if ($endOfUrl eq "menuTitle") {
+                $data{url} .= $descendant->get("menuTitle");
+            } elsif ($endOfUrl eq "title") {
+                $data{url} .= $descendant->get("title");
+            } else {
+                $data{url} .= $descendant->get("url");
+            }
             $wobjectData{url} = $data{url};
-		}
+        }
         my $newData = $descendant->isa('WebGUI::Asset::Wobject') ? \%wobjectData : \%data;
         my $revision;
         if (scalar %$newData > 0) {
@@ -295,24 +317,26 @@ sub www_editBranchSave {
         else {
             $revision = $descendant;
         }
-        foreach my $form ($self->session->form->param) {
-            if ($form =~ /^metadata_(.*)$/) {
+        foreach my $param ($form->param) {
+            if ($param =~ /^metadata_(.*)$/) {
                 my $fieldName = $1;
-                if ($self->session->form->yesNo("change_metadata_".$fieldName)) {
-                    $revision->updateMetaData($fieldName,$self->session->form->process($form));
+                if ($form->yesNo("change_metadata_".$fieldName)) {
+                    $revision->updateMetaData($fieldName,$form->process($form));
                 }
             }
         }
-	}
+    }
     if (WebGUI::VersionTag->autoCommitWorkingIfEnabled($self->session, {
         allowComments   => 1,
         returnUrl       => $self->getUrl,
     }) eq 'redirect') {
         return undef;
     };
-	delete $self->{_parent};
-	$self->session->asset($self->getParent);
-	return $self->getParent->www_manageAssets;
+    delete $self->{_parent};
+    $self->session->asset($self->getParent);
+    ##Since this method originally returned the user to the AssetManager, we don't need
+    ##to use $pb->finish to redirect back there.
+    return $self->getParent->www_manageAssets;
 }
 
 

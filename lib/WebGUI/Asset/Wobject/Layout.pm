@@ -72,6 +72,11 @@ sub definition {
                 namespace    => "Layout",
                 defaultValue =>'PBtmpl0000000000000054',
             },
+            mobileTemplateId => {
+                fieldType    => ( $session->style->useMobileStyle ? 'template' : 'hidden' ),
+                namespace    => 'Layout',
+                defaultValue => 'PBtmpl0000000000000054',
+            },
             contentPositions => {
                 noFormPost   =>1,
                 defaultValue =>undef,
@@ -95,7 +100,7 @@ sub definition {
 
 =head2 getEditForm ( )
 
-Returns the TabForm object that will be used in generating the edit page for this asset.
+Extends the base method to  handle the optional mobileTemplateId and assetsToHide.
 
 =cut
 
@@ -116,6 +121,22 @@ sub getEditForm {
             -hoverHelp=>$i18n->get('template description'),
             -namespace=>"Layout"
         );
+
+    if ( $self->session->setting->get('useMobileStyle') ) {
+        $tabform->getTab("display")->template(
+            name        => 'mobileTemplateId',
+            value       => $self->getValue('mobileTemplateId'),
+            label       => $i18n->get('mobileTemplateId label'),
+            hoverHelp   => $i18n->get('mobileTemplateId description'),
+            namespace   => 'Layout',
+        );
+    }
+    else {
+        $tabform->getTab("display")->hidden(
+            name        => 'mobileTemplateId',
+            value       => $self->getValue('mobileTemplateId'),
+        );
+    }
 
 	tie my %assetOrder, "Tie::IxHash";
 	%assetOrder = (
@@ -159,11 +180,34 @@ sub getEditForm {
 
 #-------------------------------------------------------------------
 
+=head2 prepareView 
+
+Extends the base class to handle the optional mobile style template, to handle asset dragging
+and to put children in their places.
+
+=cut
+
 sub prepareView {
     my $self = shift;
     $self->SUPER::prepareView;
     my $session = $self->session;
-    my $template = WebGUI::Asset->new($session,$self->get("templateId"),"WebGUI::Asset::Template");
+    my $templateId;
+
+    if ($session->style->useMobileStyle) {
+        $templateId = $self->get('mobileTemplateId');
+    }
+    else {
+        $templateId = $self->get('templateId');
+    }
+
+    my $template = WebGUI::Asset->new($session,$templateId,"WebGUI::Asset::Template");
+    if (!$template) {
+        WebGUI::Error::ObjectNotFound::Template->throw(
+            error      => qq{Template not found},
+            templateId => $templateId,
+            assetId    => $self->getId,
+        );
+    }
     $template->prepare( $self->getMetaDataAsTemplateVariables );
     $self->{_viewTemplate} = $template;
 
@@ -263,12 +307,21 @@ sub prepareView {
 }
 
 #-------------------------------------------------------------------
+
+=head2 view 
+
+Render all the children.
+
+Show performance indicators for the Layout and all children if enabled.
+
+=cut
+
 sub view {
     my $self = shift;
     my $session = $self->session;
     my $showPerformance = $session->errorHandler->canShowPerformanceIndicators;
     my @parts = split $self->{_viewSplitter},
-        $self->processTemplate($self->{_viewVars}, undef, $self->{_viewTemplate});
+    $self->processTemplate($self->{_viewVars}, undef, $self->{_viewTemplate});
     my $output = "";
 
     if ($self->{_viewPrintOverride}) {
@@ -300,6 +353,14 @@ sub view {
 }
 
 #-------------------------------------------------------------------
+
+=head2 www_setContentPositions 
+
+Method called via iFrame to handle reordering content positions.  This action creates
+a new asset revision.
+
+=cut
+
 sub www_setContentPositions {
     my $self = shift;
     return $self->session->privilege->insufficient() unless ($self->canEdit);
@@ -311,6 +372,14 @@ sub www_setContentPositions {
 }
 
 #-------------------------------------------------------------------
+
+=head2 getContentLastModified 
+
+Extend the base class to include looking at the last modified times of all children
+of the page, by lineage.
+
+=cut
+
 sub getContentLastModified {
     # Buggo: this is a little too conservative.  Children that are hidden maybe shouldn't count.  Hm.
     my $self = shift;
@@ -323,32 +392,43 @@ sub getContentLastModified {
 }
 
 #-------------------------------------------------------------------
+
+=head2 www_view 
+
+Extend the base method to handle caching and ad rotation.
+
+=cut
+
 sub www_view {
     my $self = shift;
+    my $session = $self->session;
     # slashdot / burst protection hack
-    if ($self->session->var->get("userId") eq "1" && $self->session->form->param() == 0) { 
+    if ($session->var->get("userId") eq "1"
+        && $session->form->param() == 0
+        && !$session->scratch->get('isExporting')
+    ) {
         my $check = $self->checkView;
         return $check if (defined $check);
-        my $cache = WebGUI::Cache->new($self->session, "view_".$self->getId);
+        my $cache = WebGUI::Cache->new($session, "view_".$self->getId);
         my $out = $cache->get if defined $cache;
         unless ($out) {
             $self->prepareView;
-            $self->session->stow->set("cacheFixOverride", 1);
-            $out = $self->processStyle($self->view);
+            $session->stow->set("cacheFixOverride", 1);
+            $out = $self->processStyle($self->view, { noHeadTags => 1 });
             $cache->set($out, 60);
-            $self->session->stow->delete("cacheFixOverride");
+            $session->stow->delete("cacheFixOverride");
         }
-        # keep those ads rotating
+        # keep those ads rotating even though the output is cached
         while ($out =~ /(\[AD\:([^\]]+)\])/gs) {
             my $code = $1;
-            my $adSpace = WebGUI::AdSpace->newByName($self->session, $2);
+            my $adSpace = WebGUI::AdSpace->newByName($session, $2);
             my $ad = $adSpace->displayImpression if (defined $adSpace);
             $out =~ s/\Q$code/$ad/ges;
         }
-        $self->session->http->setLastModified($self->getContentLastModified);
-        $self->session->http->sendHeader;   
-        $self->session->output->print($out, 1);
-        return "chunked";   
+        $session->http->setLastModified($self->getContentLastModified);
+        $session->http->sendHeader;
+        $session->output->print($out, 1);
+        return "chunked";
     }
     $self->{_viewPrintOverride} = 1; # we do this to make it output each asset as it goes, rather than waiting until the end
     return $self->SUPER::www_view;

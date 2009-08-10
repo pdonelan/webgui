@@ -32,8 +32,8 @@ These subroutines are available from this package:
 =cut
 
 readonly session   => my %session;
-private options  => my %options;
-private shipperId  => my %shipperId;
+private  options   => my %options;
+private  shipperId => my %shipperId;
 
 #-------------------------------------------------------------------
 
@@ -46,6 +46,49 @@ MUST be overridden in all child classes.
 
 sub calculate {
     croak "You must override the calculate method";
+}
+
+#-------------------------------------------------------------------
+
+=head2 canUse ( user )
+
+Checks to see if the user can use this Payment Driver.
+
+=head3 user
+
+A hashref containing user information.  The user referenced will be checked
+to see if they can use the Shipping Driver.  If missing, then $session->user
+will be used.
+
+=head4 userId
+
+A userId used to build a user object.
+
+=head4 user
+
+A user object that will be used directly.
+
+=cut
+
+sub canUse {
+    my $self = shift;
+    my $user = shift;
+    my $userObject;
+    if (!defined $user or ref($user) ne 'HASH') {
+        $userObject = $self->session->user;
+    }
+    else {
+        if (exists $user->{user}) {
+            $userObject = $user->{user};
+        }
+        elsif (exists $user->{userId}) {
+            $userObject = WebGUI::User->new($self->session, $user->{userId});
+        }
+        else {
+            WebGUI::Error::InvalidParam->throw(error => q{Must provide user information})
+        }
+    }
+    return $userObject->isInGroup($self->get('groupToUse'));
 }
 
 #-------------------------------------------------------------------
@@ -88,6 +131,9 @@ This subroutine returns an arrayref of hashrefs, used to validate data put into
 the object by the user, and to automatically generate the edit form to show
 the user.
 
+The optional hash key noFormProcess may be added to any field definition.
+This will prevent that field from being processed by processPropertiesFromFormPost.
+
 =cut
 
 sub definition {
@@ -110,6 +156,12 @@ sub definition {
             label        => $i18n->get('enabled'),
             hoverHelp    => $i18n->get('enabled help'),
             defaultValue => 1,
+        },
+        groupToUse      => {
+            fieldType       => 'group',
+            label           => $i18n->get('who can use'),
+            hoverHelp       => $i18n->get('who can use help'),
+            defaultValue    => 7,
         },
     );
     my %properties = (
@@ -261,17 +313,20 @@ Updates ship driver with data from Form.
 =cut
 
 sub processPropertiesFromFormPost {
-    my $self = shift;
+    my $self    = shift;
+    my $session = $self->session;
+    my $form    = $session->form;
     my %properties;
-    my $fullDefinition = $self->definition($self->session);
+    my $fullDefinition = $self->definition($session);
     foreach my $definition (@{$fullDefinition}) {
-	foreach my $property (keys %{$definition->{properties}}) {
-	    $properties{$property} = $self->session->form->process(
-		$property,
-		$definition->{properties}{$property}{fieldType},
-		$definition->{properties}{$property}{defaultValue}
-		);
-	}
+        PROPERTY: foreach my $property (keys %{$definition->{properties}}) {
+            next PROPERTY if $definition->{properties}{$property}->{noFormProcess};
+            $properties{$property} = $form->process(
+                $property,
+                $definition->{properties}{$property}{fieldType},
+                $definition->{properties}{$property}{defaultValue}
+            );
+        }
     }
     $properties{title} = $fullDefinition->[0]{name} if ($properties{title} eq "" || lc($properties{title}) eq "untitled");
     $self->update(\%properties);
@@ -289,7 +344,8 @@ Accessor for the session object.  Returns the session object.
 
 =head2 update ( $options )
 
-Setter for user configurable options in the ship objects.
+Setter for user configurable options in the ship objects.  It does not support updating subsets
+of the options.  If a currently set option is missing from the set of passed in options, it will be lost.
 
 =head4 $options
 

@@ -48,7 +48,8 @@ Returns true if the given word is in the stopword list.
 sub _isStopword {
     my $self    = shift;
     my $word    = lc shift;
-    my $stopwords   = q{ 
+    $word       =~ s/[^A-Za-z']//g;
+    my $stopwords   = q{
         a's able about above according accordingly across actually after 
         afterwards again against ain't all allow allows almost alone 
         along already also although always am among amongst an and another 
@@ -360,9 +361,11 @@ sub search {
         croak "'lineage' rule must be array reference"
             if ( $rules->{lineage} && ref $rules->{lineage} ne "ARRAY" );
 
-	my @params = ();
+	my @params;
+        my @orParams;
 	my $query = "";
-	my @clauses = ();
+	my @clauses;
+        my @orClauses;
 	if ($rules->{keywords}) {
 		my $keywords = $rules->{keywords};
 		unless ($keywords =~ m/"|\*/) { # do wildcards for people, like they'd expect
@@ -402,6 +405,15 @@ sub search {
 		}
 		push(@clauses, join(" or ", @phrases)) if (scalar(@phrases));
 	}
+	if ($rules->{assetIds}) {
+		my @phrases = ();
+		foreach my $assetId (@{$rules->{assetIds}}) {
+			next unless $assetId;
+			push(@orParams, $assetId);
+                        push(@phrases, "assetId like ?");
+                }
+		push(@orClauses, join(" or ", @phrases)) if (scalar(@phrases));
+	}
 	if ($rules->{classes}) {
 		my @phrases = ();
 		foreach my $class (@{$rules->{classes}}) {
@@ -413,13 +425,13 @@ sub search {
 	}
 	if ($rules->{creationDate}) {
 		my $start = $rules->{creationDate}{start} || 0;
-		my $end = $rules->{creationDate}{end} || 9999999999999999999999;
+		my $end = $rules->{creationDate}{end} || "9223372036854775807";
 		push(@clauses, "creationDate between ? and ?");
 		push(@params, $start, $end);
 	}
 	if ($rules->{revisionDate}) {
 		my $start = $rules->{revisionDate}{start} || 0;
-		my $end = $rules->{revisionDate}{end} || 9999999999999999999999;
+		my $end = $rules->{revisionDate}{end} || "9223372036854775807";
 		push(@clauses, "revisionDate between ? and ?");
 		push(@params, $start, $end);
 	}
@@ -457,9 +469,19 @@ sub search {
 			unless (ref $rules->{columns} eq "ARRAY");
 		$self->{_columns} = $rules->{columns};
 	}
-	
-	$self->{_params} = \@params;
-	$self->{_where} = "(".join(") and (", @clauses).")";
+
+	push @{$self->{_params}}, @params;
+	push @{$self->{_params}}, @orParams;
+
+        if (@clauses) {
+            $self->{_where} .= "(".join(") and (", @clauses).")";
+        }
+        if (@orClauses) {
+            if (length( $self->{_where} )) {
+                $self->{_where} .= ' or ';
+            }
+            $self->{_where} .= "(".join(") or (", @orClauses).")";
+        }
 	return $self;
 }
 

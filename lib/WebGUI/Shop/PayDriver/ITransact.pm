@@ -1,5 +1,19 @@
 package WebGUI::Shop::PayDriver::ITransact;
 
+=head1 LEGAL
+
+ -------------------------------------------------------------------
+  WebGUI is Copyright 2001-2009 Plain Black Corporation.
+ -------------------------------------------------------------------
+  Please read the legal notices (docs/legal.txt) and the license
+  (docs/license.txt) that came with this distribution before using
+  this software.
+ -------------------------------------------------------------------
+  http://www.plainblack.com                     info@plainblack.com
+ -------------------------------------------------------------------
+
+=cut
+
 use strict;
 use XML::Simple;
 use Data::Dumper;
@@ -97,13 +111,13 @@ sub _generatePaymentRequestXML {
             $recurringData->{ RecurRecipe   } = $self->_resolveRecurRecipe( $sku->getRecurInterval );
             $recurringData->{ RecurReps     } = 99999;
             $recurringData->{ RecurTotal    } = 
-                $item->get('price') + $transaction->get('taxes') + $transaction->get('shippingPrice');
+                sprintf("%.2f",$item->get('price') + $transaction->get('taxes') + $transaction->get('shippingPrice'));
             $recurringData->{ RecurDesc     } = $item->get('configuredTitle');
         }
 #       else {
             push @{ $orderItems->{ Item } }, {
                 Description     => $item->get('configuredTitle'),
-                Cost            => $item->get('price'),
+                Cost            => sprintf("%.2f", $item->get('price')),
                 Qty             => $item->get('quantity'),
             }
 #        }
@@ -114,21 +128,21 @@ sub _generatePaymentRequestXML {
 	if ( $transaction->get('taxes') > 0 ) {
 		push @{ $orderItems->{ Item } }, {
 			Description		=> $i18n->get('taxes'),
-			Cost			=> $transaction->get('taxes'),
+			Cost			=> sprintf("%.2f",$transaction->get('taxes')),
 			Qty				=> 1,
 			};
 	}
 	if ($transaction->get('shippingPrice') > 0) {
 		push @{ $orderItems->{ Item } }, {
 			Description		=> $i18n->get('shipping'),
-			Cost			=> $transaction->get('shippingPrice'),
+			Cost			=> sprintf("%.2f",$transaction->get('shippingPrice')),
 			Qty				=> 1,
 			};
 	}
 	if ($transaction->get('shopCreditDeduction') < 0) {
 		push @{ $orderItems->{ Item } }, {
 			Description		=> $i18n->get('in shop credit'),
-			Cost			=> $transaction->get('shopCreditDeduction'),
+			Cost			=> sprintf("%.2f",$transaction->get('shopCreditDeduction')),
 			Qty				=> 1,
 			};
 	}
@@ -276,6 +290,24 @@ sub cancelRecurringPayment {
 }
 
 #-------------------------------------------------------------------
+
+=head2 checkRecurringTransaction ( $xid, $expectedAmount )
+
+Make an XML request back to ITransact to verify a recurring transaction.  Returns 0 if
+the transaction cannot be verified or is incorrect.  Otherwise, it returns 1.
+
+NOTE: THIS CODE IS NOT CALLED ANYWHERE.
+
+=head3 $xid
+
+Transaction ID, from ITransact.
+
+=head3 $expectedAmount
+
+The amount we think should be charged in this transaction.
+
+=cut
+
 sub checkRecurringTransaction {
     my $self            = shift;
     my $xid             = shift;
@@ -290,7 +322,7 @@ sub checkRecurringTransaction {
                 HomePage        => ,
             },
             RecurDetails            => {
-                OperiationXID   => $xid,
+                OperiationXID   => $xid, ##BUGGO, typo?
             },
         }
     };
@@ -434,6 +466,14 @@ sub doXmlRequest {
 }
 
 #-------------------------------------------------------------------
+
+=head2 getButton 
+
+Return a form to select this payment driver and to accept credentials from those
+who wish to use it.
+
+=cut
+
 sub getButton {
     my $self    = shift;
     my $session = $self->session;
@@ -459,6 +499,14 @@ sub handlesRecurring {
 }
 
 #-------------------------------------------------------------------
+
+=head2 processCredentials 
+
+Process the form where credentials (name, address, phone number and credit card information)
+are entered.
+
+=cut
+
 sub processCredentials {
     my $self    = shift;
     my $session = $self->session;
@@ -555,6 +603,17 @@ sub getBillingAddress {
 }
 
 #-------------------------------------------------------------------
+
+=head2 processPayment ($transaction)
+
+Contact ITransact and submit the payment data to them for processing.
+
+=head3 $transaction
+
+A WebGUI::Shop::Transaction object to pull information from.
+
+=cut
+
 sub processPayment {
     my $self        = shift;
     my $transaction = shift;
@@ -645,6 +704,17 @@ sub www_edit {
 }
 
 #-------------------------------------------------------------------
+
+=head2 www_getCredentials ( $errors )
+
+Build a templated form for asking the user for their credentials.
+
+=head3 $errors
+
+An array reference of errors to show the user.
+
+=cut
+
 sub www_getCredentials {
     my $self        = shift;
     my $errors      = shift;
@@ -710,9 +780,11 @@ sub www_getCredentials {
         name  => 'zipcode',
         value => $form->process("zipcode") || $addressData->{ code } || $u->profileField('homeZip'),
     });
+    $session->log->warn("form: ". $form->process("country",'country'));
+    $session->log->warn("addressData: ". $addressData->{country});
     $var->{countryField} = WebGUI::Form::country($session, {
         name  => 'country',
-        value => ($form->process("country",'country') || $addressData->{ country } || $u->profileField("homeCountry") || 'United States'),
+        value => ($form->process("country",'country', '') || $addressData->{ country } || $u->profileField("homeCountry") || 'United States of A'),
     });
     $var->{phoneField} = WebGUI::Form::phone($session, {
         name  => 'phone',
@@ -754,6 +826,15 @@ sub www_getCredentials {
 }
 
 #-------------------------------------------------------------------
+
+=head2 www_pay 
+
+Makes sure that the user has all the requirements for checking out, including
+getting credentials, it processes the transaction and then displays a thank
+you screen.
+
+=cut
+
 sub www_pay {
     my $self        = shift;
     my $session     = $self->session;
@@ -782,6 +863,15 @@ sub www_pay {
 }
 
 #-------------------------------------------------------------------
+
+=head2 www_processRecurringTransactionPostback 
+
+Callback method for ITransact to dial up WebGUI and post the results of a
+recurring transaction.  This allows WebGUI to renew group memberships or
+do whatever other activity a Sku purchase would allow.
+
+=cut
+
 sub www_processRecurringTransactionPostback {
 	my $self    = shift;
     my $session = $self->session;

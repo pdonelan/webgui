@@ -31,11 +31,14 @@ our ( $SESSION, $WEBGUI_ROOT, $CONFIG_FILE, $WEBGUI_LIB, $WEBGUI_TEST_COLLATERAL
 use Config     qw[];
 use IO::Handle qw[];
 use File::Spec qw[];
+use IO::Select qw[];
 use Cwd        qw[];
 use Test::MockObject::Extends;
 use WebGUI::PseudoRequest;
 use Scalar::Util qw( blessed );
 use List::MoreUtils qw/ any /;
+use Carp qw[ carp croak ];
+use JSON qw( from_json to_json );
 
 ##Hack to get ALL test output onto STDOUT.
 use Test::Builder;
@@ -54,7 +57,14 @@ my $originalSetting;
 
 my @groupsToDelete;
 my @usersToDelete;
+my @sessionsToDelete;
 my @storagesToDelete;
+my @tagsToRollback;
+my @workflowsToDelete;
+
+my $smtpdPid;
+my $smtpdStream;
+my $smtpdSelect;
 
 BEGIN {
 
@@ -141,12 +151,16 @@ BEGIN {
 END {
     my $Test = Test::Builder->new;
     GROUP: foreach my $group (@groupsToDelete) {
-        $group->delete;
+        my $groupId = $group->getId;
+        next GROUP if WebGUI::Group->vitalGroup($groupId);
+        my $newGroup = WebGUI::Group->new($SESSION, $groupId);
+        $newGroup->delete if $newGroup;
     }
     USER: foreach my $user (@usersToDelete) {
         my $userId = $user->userId;
         next USER if any { $userId eq $_ } (1,3);
-        $user->delete;
+        my $newUser = WebGUI::User->new($SESSION, $userId);
+        $newUser->delete if $newUser;
     }
     foreach my $stor (@storagesToDelete) {
         if ($SESSION->id->valid($stor)) {
@@ -157,11 +171,41 @@ END {
             $stor->delete;
         }
     }
+    SESSION: foreach my $session (@sessionsToDelete) {
+        $session->var->end;
+        $session->close;
+    }
+    TAG: foreach my $tag (@tagsToRollback) {
+        $tag->rollback;
+    }
+    WORKFLOW: foreach my $workflow (@workflowsToDelete) {
+        my $workflowId = $workflow->getId;
+        next WORKFLOW if any { $workflowId eq $_ } qw/
+                AuthLDAPworkflow000001 
+                csworkflow000000000001 
+                DPWwf20061030000000002 
+                PassiveAnalytics000001 
+                pbworkflow000000000001 
+                pbworkflow000000000002 
+                pbworkflow000000000003 
+                pbworkflow000000000004 
+                pbworkflow000000000005 
+                pbworkflow000000000006 
+                pbworkflow000000000007 
+                send_webgui_statistics 
+                /;
+
+        $workflow->delete;
+    }
     if ($ENV{WEBGUI_TEST_DEBUG}) {
-        $Test->diag('Sessions: '.$SESSION->db->quickScalar('select count(*) from userSession'));
-        $Test->diag('Scratch : '.$SESSION->db->quickScalar('select count(*) from userSessionScratch'));
-        $Test->diag('Users   : '.$SESSION->db->quickScalar('select count(*) from users'));
-        $Test->diag('Groups  : '.$SESSION->db->quickScalar('select count(*) from groups'));
+        $Test->diag('Sessions : '.$SESSION->db->quickScalar('select count(*) from userSession'));
+        $Test->diag('Scratch  : '.$SESSION->db->quickScalar('select count(*) from userSessionScratch'));
+        $Test->diag('Users    : '.$SESSION->db->quickScalar('select count(*) from users'));
+        $Test->diag('Groups   : '.$SESSION->db->quickScalar('select count(*) from groups'));
+        $Test->diag('mailQ    : '.$SESSION->db->quickScalar('select count(*) from mailQueue'));
+        $Test->diag('Tags     : '.$SESSION->db->quickScalar('select count(*) from assetVersionTag'));
+        $Test->diag('Assets   : '.$SESSION->db->quickScalar('select count(*) from assetData'));
+        $Test->diag('Workflows: '.$SESSION->db->quickScalar('select count(*) from Workflow'));
     }
     while (my ($key, $value) = each %originalConfig) {
         if (defined $value) {
@@ -176,6 +220,16 @@ END {
     }
     $SESSION->var->end;
     $SESSION->close if defined $SESSION;
+
+    # Close SMTPD
+    if ($smtpdPid) {
+        kill INT => $smtpdPid;
+    }
+    if ($smtpdStream) {
+        close $smtpdStream;
+        # we killed it, so there will be an error.  Prevent that from setting the exit value.
+        $? = 0;
+    }
 }
 
 #----------------------------------------------------------------------------
@@ -370,6 +424,53 @@ sub session {
     return $SESSION;
 }
 
+#----------------------------------------------------------------------------
+
+=head2 webguiBirthday ( )
+
+This constant is used in several tests, so it's reproduced here so it can
+be found easy.  This is the epoch date when WebGUI was released.
+
+=cut
+
+sub webguiBirthday {
+    return 997966800 ;
+}
+
+#----------------------------------------------------------------------------
+
+=head2 prepareMailServer ( )
+
+Prepare a Net::SMTP::Server to use for testing mail.
+
+=cut
+
+sub prepareMailServer {
+    eval {
+        require Net::SMTP::Server;
+        require Net::SMTP::Server::Client;
+    };
+    croak "Cannot load Net::SMTP::Server: $@" if $@;
+
+    my $SMTP_HOST        = 'localhost';
+    my $SMTP_PORT        = '54921';
+    my $smtpd    = File::Spec->catfile( WebGUI::Test->root, 't', 'smtpd.pl' );
+    $smtpdPid = open $smtpdStream, '-|', $^X, $smtpd, $SMTP_HOST, $SMTP_PORT
+        or die "Could not open pipe to SMTPD: $!";
+
+    $smtpdSelect = IO::Select->new;
+    $smtpdSelect->add($smtpdStream);
+
+    $SESSION->setting->set( 'smtpServer', $SMTP_HOST . ':' . $SMTP_PORT );
+
+    WebGUI::Test->originalConfig('emailToLog');
+    $SESSION->config->set( 'emailToLog', 0 );
+
+    # Let it start up yo
+    sleep 2;
+
+    return;
+}
 
 #----------------------------------------------------------------------------
 
@@ -407,6 +508,62 @@ sub groupsToDelete {
 
 #----------------------------------------------------------------------------
 
+=head2 getMail ( ) 
+
+Read a sent mail from the prepared mail server (L<prepareMailServer>)
+
+=cut
+
+sub getMail {
+    my $json;
+    
+    if ( !$smtpdSelect ) {
+        return from_json ' { "error": "mail server not prepared" }';
+    }
+
+    if ($smtpdSelect->can_read(5)) {
+        $json = <$smtpdStream>;
+    }
+    else {
+        $json = ' { "error": "mail not sent" } ';
+    }
+    
+    if (!$json) {
+        $json = ' { "error": "error in getting mail" } ';
+    }
+    
+    return from_json( $json );
+}
+
+#----------------------------------------------------------------------------
+
+=head2 getMailFromQueue ( )
+
+Send the first mail in the queue and then retrieve it from the smtpd. Returns
+false if there is no mail in the queue.
+
+Will prepare the server if necessary
+
+=cut
+
+sub getMailFromQueue {
+    my $class   = shift;
+    if ( !$smtpdSelect ) {
+        $class->prepareMailServer;
+    }
+    
+    my $messageId = $SESSION->db->quickScalar( "SELECT messageId FROM mailQueue" );
+    warn $messageId;
+    return unless $messageId; 
+
+    my $mail    = WebGUI::Mail::Send->retrieve( $SESSION, $messageId );
+    $mail->send;
+
+    return $class->getMail;
+}
+
+#----------------------------------------------------------------------------
+
 =head2 storagesToDelete ( $storage, [$storageId ] )
 
 Push a list of storage objects or storageIds onto the stack of storage locaitons
@@ -423,6 +580,38 @@ sub storagesToDelete {
 
 #----------------------------------------------------------------------------
 
+=head2 sessionsToDelete ( $session, [$session, ...] )
+
+Push a list of session objects onto the stack of groups to be automatically deleted
+at the end of the test.  Note, this will be the last group of objects to be
+cleaned up.
+
+This is a class method.
+
+=cut
+
+sub sessionsToDelete {
+    my $class = shift;
+    push @sessionsToDelete, @_;
+}
+
+#----------------------------------------------------------------------------
+
+=head2 tagsToRollback ( $tag )
+
+Push a list of version tags to rollback at the end of the test.
+
+This is a class method.
+
+=cut
+
+sub tagsToRollback {
+    my $class = shift;
+    push @tagsToRollback, @_;
+}
+
+#----------------------------------------------------------------------------
+
 =head2 usersToDelete ( $user, [$user, ...] )
 
 Push a list of user objects onto the stack of groups to be automatically deleted
@@ -435,6 +624,22 @@ This is a class method.
 sub usersToDelete {
     my $class = shift;
     push @usersToDelete, @_;
+}
+
+#----------------------------------------------------------------------------
+
+=head2 workflowsToDelete ( $workflow, [$workflow, ...] )
+
+Push a list of workflow objects onto the stack of groups to be automatically deleted
+at the end of the test.
+
+This is a class method.
+
+=cut
+
+sub workflowsToDelete {
+    my $class = shift;
+    push @workflowsToDelete, @_;
 }
 
 #----------------------------------------------------------------------------

@@ -1,3 +1,304 @@
+7.7.16
+ - fixed #10590: Session::DateTime->secondsToInterval doesn't allow 7 weeks
+ - Fix template not found diagnostics.
+ - fixed #10665: Navigations with old templates still in 7.7.16
+ - fixed #10662: Manage Clipboard / delete item
+ - fixed #10637: shelf displays assets it shouldn't
+ - fixed #10660: Crud doesn't like 0 (Patrick Donelan, SDH Consulting)
+ - fixed #10668: shop pay drivers
+ - fixed: Pay Drivers update their objects
+ - fixed #10652: Story Archive: hover help confusing
+ - fixed #10653: Story Archive: Description text doesn't display
+ - fixed #10656: Story: Photo caption doesn't appear
+ - fixed #10658: Delete in Story Archive doesn't delete in Story Topic
+ - fixed #10676: Settings>Account Tab: typos
+ - WebGUI::Shop::PayDriver::PayPal moved to WebGUI::Shop::PayDriver::PayPal::ExpressCheckout.
+ - WebGUI::Shop::PayDriver::PayPal::PayPalStd is back, now functional.
+ - fixed #10671: shop checkout address copy broken
+ - fixed #10678: i18n in WebGUI::versionTags.icon
+ - fixed #10679: i18n TaxDriver_EU::accept when vies unavailable help
+ - fixed #10680: i18n PayDriver_Ogone::use test mode help
+ - fixed #10681: i18n PassiveAnalytics::regexp help
+ - fixed #10682: i18 PassiveAnalytics::User help
+ - fixed #10683: i18n Asset_Story::crumb_url
+ - fixed #10684: i18n Asset_StoryTopic::deleteIcon
+ - fixed #10685: i18n Asset_StoryTopic::rssUrl 
+ - fixed #10686: Can't access Database Links
+ - fixed #10650: Unflatten WebGUI storage locations
+ - fixed #10664: ThiingyRecord disappeared... sort of
+ - fixed #10687: i18n Asset_Product::buy_form_options
+ - fixed #10651: Dashboard Content positions
+ - fixed #10695: Adding a new article creates a new version tag
+ - fixed #10693: double titels in help for Story Archive view template
+ - fixed Story Archive sub-folders should not use the failsafe style.
+ - fixed #10617: synchToCdn.pl misses many files (Wes Morgan, Public Interest Network)
+
+7.7.15
+ - fixed #10629: WebGUI::ProfileField create new field bug
+ - fixed #10626: Carriage returns stripped from Wiki comments
+ - fixed #10572: CDN / CloudFront breaks 7.7.11 upgrade
+ - fixed #10630: If macro says that 0 is true
+ - WebGUI::Shop::PayDriver::PayPal::PayPalStd replaced by WebGUI::Shop::PayDriver::PayPal.  PayPalStd fought the Shop API and didn't work.
+ - fixed #10633: GET requests in Operation/User require valid CSRF token.
+ - fixed #10621: ThingRecord needs an Asset Icon
+ - fixed #10638: Paste from Admin Bar broken
+ - fixed per-field prices in ThingyRecord
+ - fixed a bug where VersionTag->get would return an unsafe copy of its
+   state ( Martin Kamerbeek / Oqapi )
+ - fixed a bug in the Ogone pay driver where for certain combinations of tax
+   rates and in store credit a rounding error would prevent checkout at
+   Ogone. ( Martin Kamerbeek / Oqapi )
+ - fixed a bug in My Purchases where in store credit would not be taken into
+   account in the overview yielding zero or neagtive transaction amounts on
+   the screen. ( Martin Kamerbeek / Oqapi )
+ - fixed #10646: Asset History not paginated
+ - fixed #10645: Asset History: search results not sorted as expected
+ - fixed #10648: Story Topic: Photos don't display
+ - fixed #10649: Story Manager Keywords not working correctly
+ - fixed #10643: Products: Pictures gone
+ - imported new templates from the Template Working Group
+
+7.7.14
+ - fixed #10606: shelf selector
+ - fixed: Have just 1 list of protected groups.  Use that everywhere.
+ - fixed #10488: Map.gif is missing for Map wobject
+ - fixed #10553: WebGUI vulnerable to CSRF attacks
+ - fixed #10607: snippets empty
+ - fixed #10601: Edit field in Thing: no submit button
+ - fixed #10560: 7.7.2 upgrade script leaves rssFromParent assets behind (Wes Morgan)
+ - fixed #10612: strange i18n, with regard to label
+ - fixed #9935: German characters in Collaboration System
+ - fixed #10610: editing a page and editing goes away
+ - fixed #10518: ThingyRecord edit page - Fields to Edit not filled in
+ - fixed #10603: ThingyRecord Thank You/Confirmation Screen Confusing
+ - fixed #10615: i18n Asset_StoryArchive - deleteIcon
+ - fixed: Exceptions from WebGUI::Exception::Shop
+ - fixed #10616: karma list will break eventually
+
+7.7.13
+ - fixed #10574: Creating Calendar Entry
+ - fixed #10522: Metadata value & label problem
+ - fixed #10594: iCal title display error.
+ - fixed #10602: Calendar feed importing extra characters.
+ - fixed: Internationalize Event edit form error messages.
+
+7.7.12
+ - Updated auth to allow sending back of non-text/html mime types.
+ - fixed #10564: edit branch progress bar goes kablooey
+ - fixed #10565: Survey: add question doing double-create
+ - fixed: Photo resizing bugs with the Story asset.
+ - Enabled better month and year navigation in the YUI date picker. (Tom Beharrell)
+ - fixed: Add the user's first day of week data to getWebguiProperties and get rid of some inline javascript in the Data and DateTime forms.
+ - fixed #10544: AssetVersioning: child assets versions under uncommitted parent
+ - fixed #10549: EMS import
+ - fixed #10561: pb: purge
+ - fixed #10563: pb: rollback version tag
+ - fixed #10562: pb: delete
+
+7.7.11
+ - Fixed a bug where empty version tags were not deleted. (Martin Kamerbeek / Oqapi)
+ - fixed: deploying a package doesn't commit version tag with autocommit on
+ - fixed rfe #76: group delete causes problems
+ - fixed #10526: icalInterval in Calendar.pm
+ - fixed: displaying performance profile data only to an allowed IP address.
+ - fixed #10528: Thingy css error
+ - fixed: Performance improvements with getting the list of asset packages.
+ - fixed: Performance improvements with getting the list of content prototypes.
+ - fixed bug in Thingy where the style template would not be processed after
+   editing a Thing and the 'return after edit' setting was set to 'Thing 
+   Default' ( Martin Kamerbeek / Oqapi )
+ - fixed: In the Asset Manager, if you pasted an asset if returned you to the page instead the manager.
+ - fixed: In the Asset Manager, only display a Select All button if there is more than one asset.
+ - fixed: Add a progress indicator for long running functions so the user knows something is happening.
+ - fixed: In the Asset Manager, if you pasted an package or prototype if returned you to the page instead the manager.
+ - fixed #10551: paypal (link to section of paypal website to enter in WebGUI information)
+ - fixed #10550: shipping plugins have no privileges
+ - fixed: Add progress bars for paste and edit branch.
+ - fixed: Add progress bars for promote and demote.
+ - fixed: Add progress bars for set rank in the Asset Manager.
+ - fixed: SurveyJSON database bloating
+ - fixed #10548: Macro RandomAssetProxy failure to be random
+ - fixed #10542: AssetVersioning: versionTag/isLockedBy updating
+
+7.7.10
+ - Made a change to LDAP auth that adds an OR to that query so that it also searches for a row with fieldData REGEXP '^uid=(value-from-ldap-directory-server),'. (Wes Morgan)
+ - fixed #10481: i18n outdated message saving
+ - fixed #10491: Side by Side template metadata extra headers CSS
+ - fixed: getNextThread/getPreviousThread won't sort by thread rating
+ - fixed: #10485: User not returned to asset manager after adding content to /impor
+ - fixed: #10262: Default Inbox View Template: Mismatch in HTML for upper and lower page navigation 
+ - fixed rfe #10474: Improve error message for template errors
+ - removed hardcoding of administer.js and survey.css hardcoded extras paths.
+ - fixed: Error message when you try to send a message from the Inbox, but none of your friends allow private messaging.
+ - fixed: Images uploaded to a Story should all be the same width so the YUI carousel does not break.
+ - fixed: assets can have urls with /./ or /../ in them, making them inaccessible
+ - fixed: Icons don't show on first view of admin panel in IE
+ - refixed #10260: WebGUI::Asset::Wobject::Gallery.pm default search date misfunction
+ - fixed #9953: Matrix 2.0 - Not enough tests
+ - fixed #10121: Q and A template doesn't work with default Forum Rich Editor
+ - fixed #10486: Hardcoded extras in files in www/extras
+ - fixed: LDAP authentication does not check for failed passwords.  (Rob Harhen <rharhen@gmail.com>)
+
+7.7.9
+ - fixed #10266: Public Profile overrides Able to be friend   
+ - fixed #10211: Regex quantifiers like ? and + broke search engine
+ - fixed #10261: editted tag in Default Contributions View Template
+ - fixed #10450: A different errormessage is given if the username does exist and
+   does not exist. (Arjan Widlak / United Knowledge)
+ - fixed: Reverted bugfix for 10409 and changed the hover help to reflect the correct way to build list-type form controls in the MetaData.
+ - Fixed a problem with graphing created by the newer versions of Image Magick.
+ - fixed: Template parser cannot be set
+ - fixed #10361: Shortcuts duplicate extra header tags
+ - fixed #10356: SQL report is cached too long
+ - fixed #10313: extra head elements appear twice
+ - fixed missing edit story and delete story icons in the Story Archive and Story Topic.
+ - fixed #10453: Project Management System Broken in 7.7.8
+ - fixed Two sets of delete buttons for photos in the Story.
+ - fixed #9920: Survey: cannot add questions in IE
+ - fixed #10449: Undefined template
+ - fixed: WebGUI::Search epoch maximum range error  (#10288)
+ - fixed: Insufficient filtering in javascript filter  (#10001)
+ - fixed #10365: Head tags do not work "Use Packed Head Tags".
+ - fixed #9927: Survey - verbatim
+ - fixed #10352: Deleting a user does not clean up any address books
+ - Fixed the problem with Basic Auth that UK fixed, but in a different way that still allows non-realm based Basic authentication.
+ - fixed #10228: Calendar: Weekly re-occurence function not working properly ( Martin Kamerbeek / Oqapi )
+ - fixed #9851: New Users have blank profile field privacy settings (United Knowledge)
+ - fixed #10208: Account/Inbox.pm site invititations
+ - fixed #10355: Thingy: dirty delete FileField value
+ - fixed #10095: Widget Macro (syndication) - templateing broken
+ - fixed #10473: Fwd: Album Bug?
+ - fixed #10088: ##userPref:firstName## doesn't work in Dashboard
+ - fixed: allow any Asset to use the proceed=goBackToPage;returnUrl url parameter coda
+
+7.7.8
+ - fixed: Basic Auth doesn't work if password contains colon (Arjan Widlak,
+   United Knowledge)
+ - fixed: Basic Auth causes internal server error if you use more than one
+   colon. (Arjan Widlak, United Knowledge)
+ - added date pagination, and some formatting to EMS Schedule table
+ - Removed dubious 3px padding around image based ads in an adspace.
+ - Stats now send over SSL rather than straight HTTP.
+ - fixed #8914: epoch for calendar/List View for Calendar
+ - fixed #10044: Gallery: Javascript, CSS included in body
+ - fixed #10409: Problem using hash in metadata possible values
+ - fixed a similar problem with metadata in the Shortcut Asset.
+ - fixed #10396: Syndicated Content wobject not displaying edit controls
+ - fixed #10386: Template override missing in nav shortcut
+ - fixed #10436: Story Manager - Story Edit/Delete links are Admin Only
+ - fixed a bug in Thingy where fields with list type form elements wouldn't
+   show up in Thingy search results ( Martin Kamerbeek / Oqapi )
+ - fixed a bug in Thingy where the search form would lose part of its contents
+   when searching. ( Martin Kamerbeek / Oqapi )
+ - fixed a bug in Thingy where debug information would show up in the Thing
+   editor when adding/editing fields. ( Martin Kamerbeek / Oqapi )
+ - fixed a bug in Thingy where when searching using multi value search form
+   elements (eg. check lists) only one of the selected elements was taken into
+   account in the search query. ( Martin Kamerbeek / Oqapi )
+ - fixed #10439: Call to insufficient is wrong (lrobinson / Orchard Solutions )
+ - fixed #10373: Admin groups inbox messages linger after task complete
+ - fixed a bug in Thingy where the defaultValue of multi value form elements
+   would not be applied ( Martin Kamerbeek / Oqapi )
+ - added "addedToCart" var for ThingyRecord
+
+7.7.7
+ - Added EMS Schedule table
+ - rfe #10061: Use email as username at registration
+ - Added WebGUI community statistics question to the site setup wizard.
+ - Added Ogone payment plugin ( Martin Kamerbeek / Oqapi )
+ - Improved VAT number management for admins ( Martin Kamerbeek / Oqapi )
+ - rfe #9981: RedirectAfterLogin Setting
+ - Added user create, update, and delete web services ( HD Publishing )
+ - Added Survey web test suite for validating expression/branching logic
+ - fixed SMS i18n for the user profile fields.
+ - added Google Maps asset
+ - added a way for authors to prevent debugging output on page requests
+ - added --noprompt option to testEnvironment.pl to automatically install modules
+ - added FilePump, a way to reduce Yslow scores by minimizing JS, CSS and the number of files transferred.
+ - fixed #10394: CC Purchases Fail When Variants Contain Trailing Zero(s)
+ - fixed #10332: Matrix: last updated fields = today
+ - fixed Thread subscription groups not cleaned up during purge.
+ - fixed: Story subtitle is supposed to be a text field, not a text area.
+ - fixed: Display of short pagination bar when there's less than 1 page of data in StoryArchive
+ - added: Storage now has a getHexId method for returning a cached hexadecimal version of the storageId.
+ - fixed: FilePump should copy filesystem directories and their files when given a file URI that is a directory.
+ - fixed #10133: Matrix compare for priv. group open to any user
+ - added: Activate, Deactivate, Delete User workflow activities
+
+7.7.6
+ - Added mobile style template.  If enabled in settings, will serve alternate style templates
+   and page layout templates to matching user agents.  Also adds the 'mobileExportPath' config
+   variable where the mobile version of the site will be exported in addition to the normal
+   export process.
+ - Clean up the Asset export API to allow for easier re-use.
+ - New features in the UKplayer slidehow: you can hide the textblock, volume
+   slider and mute button, resize the textblock and thumbnails. A new demo 
+   config is added. See: /extras/ukplayer/slideshow.html (Rogier Voogt, Arjan 
+   Widlak / United Knowledge)
+ - Added internationalisations in Gallery.pm "Return to Album" and "Add Photo"
+   (Arjan Widlak / United Knowledge)
+ - Reverted using the packed templates and snippets by default. You can re-enable the packed templates and snippets carefully.
+ - Added support for template attachments; scripts and stylesheets that will
+   be included using style->setScript and setLink instead of just using raw
+   head tags.
+ - Added the WebGUI stats system, which will allow site admins to submit
+   information about their site to a central repository on webgui.org which
+   help the developers make WebGUI better.
+ - fixed #10322: Dataform: wrong attr on script tag
+ - fixed #10336: postReceivedTemplateId not corrected in upgrade_7.6.0-7.6.1 (Jukka Raimovaara / Axxion Oy)
+ - fixed: Crud handling of Form fields with database types that cannot have default values.
+ - fixed: Crud serialization.
+ - fixed: URLs that shouldn't happen  (#10353)
+ - Added more information output to EMS record importer.
+ - Fixed a search tickets problem in the EMS badge builder template.
+ - Fixed a problem in the EMS calculating prices on tickets with a badge that
+   has an existing ribbon.
+ - Fixed a search results display error with synopsis.
+ - Fixed a load problem with Code Editor by making user toggle it on. This is
+   better than normal anyway since many users appear not to want to use the
+   editor in most cases.
+ - fixed: i18n typo in Survey exit URL hover help.
+ - fixed: Survey jump target and jump expression precedence order across Section, Question, Answer.
+ - rfre #9998: Mark inbox messages read/unread
+ - The transaction items now store the tax that is applied to them, as well as
+   tax plugin specific data that needs to be stored together with
+   transactions. (Martin Kamerbeek / Oqapi )
+ - Added better Survey Expression Engine validation warnings
+ - added #9203: Survey Visualization
+ - rfe #10253: add ability to select the htmlArea Rich Text Editor for DataForm
+ - Added: United States Postal Service Shipping Driver.
+ - Refactored transaction tmpl_var generation into WebGUI::Shop::Transaction. ( Martin Kamerbeek / Oqapi )
+ - rfe #9906: Inbox Filtering
+ - rfe #9911: Inbox: Copy Sender
+ - rfe #9907: Inbox: Notifications
+ - rfe #9134: Pluggable Storage to support Amazon S3 and Cloudfront (Funded by donor.com, coded by Whizman)
+ - Added PayPal paydriver. (Thanks to Paul Wrightson)
+ - rfe #9908: Inbox: SMS delivery
+ - rfe #9204: Add Reply Filter Code Option to Collaboration System - provides ability to specify a code filter for collaboration system replies which might be different than the one used for posts.  Also adds ability to specify a different Rich Editor for replies.
+ - rfe #10384: Change the view Groups in this Group area
+ - rfe #10254: Profile address as default for shop shipping and billing
+   address ( Martin Kamerbeek / Oqapi )
+
+7.7.5
+ - Adding StoryManager.
+ - rfe: Button to Turn Admin Off on Admin Accordian  (#475)
+ - fixed #10223: Calendar List View Ignores Event Permissions (dhelsten)
+ - fixed #10226: html2text dropping text
+ - fixed #10210: Generated Message-Id invalid (patch basis from tektek)
+ - fixed #10209: Changing existing user profile field type doesn't change underlying database column type
+ - fixed #10047: SQLReport Debug doesn't catch when bind variables are incorrect
+ - fixed #10260: WebGUI::Asset::Wobject::Gallery.pm default search date misfunction
+ - fixed #10238: Edit Calendar Event not working when proxy cache disabled
+ - Fixed a bug in the RssFeed aspect that would cause the wrong HEAD links to be made for the feeds when exporting.
+ - Fixed a bug in the YUI simple editor for survey editing which was leaking memory.  Also improved the object edit templates.
+ - fixed #10184: Matrix 2.0 - Version Tag Duplicate Type
+ - fixed #10182: Matrix 2.0 - Comparison view broken in IE 6 & 7
+ - Added individual shipping requirements to the Sku.
+ - added #10145: Global Head Tags in Settings
+ - added packing to templates, snippets, and head tags. 
+ - added #9289: Extending the "Request Approval For Version Tag" activity by reversing the test (Bernd Kalbfuß-Zimmermann)
+ - added: Survey sections now have logical section type, which is never shown to the user, only used for silently checking gotos.
+
 7.7.4
  - rfe: Extend DateTime for Week-Nrs  (#9151)
  - fixed: 7.6 upgrade left some default content marked as packages

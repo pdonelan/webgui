@@ -39,7 +39,7 @@ These methods are available from this class:
 
 =head2 definition ( session, definition )
 
-See WebGUI::Workflow::Activity::defintion() for details.
+See WebGUI::Workflow::Activity::definition() for details.
 
 =cut 
 
@@ -94,10 +94,10 @@ sub execute {
         = WebGUI::AssetCollateral::Sku::ThingyRecord::Record->getAllIterator(
             $self->session,
             {
-                constraints => {
-                    "expires < ?"   => $time + $self->get('notificationOffset'),
-                    "sentExpiresNotice != ?" => 1,
-                },
+                constraints => [
+                    { "expires < ?"   => $time + $self->get('notificationOffset') },
+                    { "sentExpiresNotice != ?" => 1 },
+                ],
             });
     while ( my $record = $iter->() ) {
         $record->update({
@@ -121,10 +121,10 @@ sub execute {
         = WebGUI::AssetCollateral::Sku::ThingyRecord::Record->getAllIterator(
             $self->session,
             {
-                constraints => {
-                    "expires < ?"   => $time,
-                    "isHidden != ?" => 1,
-                },
+                constraints => [
+                    { "expires < ?"   => $time },
+                    { "isHidden != ?" => 1 },
+                ],
             });
     while ( my $record = $iter->() ) {
         # Record is hidden

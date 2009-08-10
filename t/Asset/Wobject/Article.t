@@ -40,6 +40,7 @@ my $node = WebGUI::Asset->getImportNode($session);
 
 my $versionTag = WebGUI::VersionTag->getWorking($session);
 $versionTag->set({name=>"Article Test"});
+WebGUI::Test->tagsToRollback($versionTag);
 my $article = $node->addChild({className=>'WebGUI::Asset::Wobject::Article'});
 
 # Test for a sane object type
@@ -53,7 +54,7 @@ isa_ok($article, 'WebGUI::Asset::Wobject::Article');
 # Test to see if we can set new values
 my $newArticleSettings = {
 	cacheTimeout => 124,
-	templateId   => "PBtmpl0000000000000084",
+	templateId   => "PBtmpl0000000000000002",
 	linkURL      => "http://www.snapcount.org",
 	linkTitle    => "I'm thinking of getting metal legs",
 	storageId    => "ImadeThisUp",
@@ -138,6 +139,5 @@ TODO: {
 
 END {
 	# Clean up after thy self
-	$versionTag->rollback();
 }
 

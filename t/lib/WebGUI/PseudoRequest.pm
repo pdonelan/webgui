@@ -231,7 +231,11 @@ all form variables.
 sub body {
 	my $self = shift;
 	my $value = shift;
-	return keys %{ $self->{body} } unless defined $value;
+    if ( !defined $value ) {
+        return if !$self->{body};
+        return keys %{ $self->{body} } if wantarray;
+        return { %{ $self->{body} } };
+    }
 	if ($self->{body}->{$value}) {
         if (wantarray && ref $self->{body}->{$value} eq "ARRAY") {
             return @{$self->{body}->{$value}};
@@ -370,6 +374,23 @@ C<print> method.  Returns it as a scalar.
 sub get_output {
     my $self = shift;
     return $self->{output};
+}
+
+#----------------------------------------------------------------------------
+
+=head2 method ( [ $method ] )
+
+Getter/setter for the HTTP request method.
+
+=cut
+
+sub method {
+    my ($self, $newMethod) = @_;
+    my $method = $self->{method};
+    if (defined $newMethod) {
+        $self->{method} = $newMethod;
+    }
+    return $method;
 }
 
 #----------------------------------------------------------------------------

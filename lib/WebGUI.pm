@@ -1,7 +1,7 @@
 package WebGUI;
 
 
-our $VERSION = '7.7.4';
+our $VERSION = '7.7.16';
 our $STATUS = 'beta';
 
 
@@ -167,15 +167,17 @@ sub handler {
     $matchUri =~ s{^$gateway}{/};
 	my $gotMatch = 0;
 
-	# handle basic auth
-	my $auth = $request->headers_in->{'Authorization'};
+    # handle basic auth
+    my $auth = $request->headers_in->{'Authorization'};
     if ($auth =~ m/^Basic/) { # machine oriented
-		$auth =~ s/Basic //;
-		authen($request, split(":",MIME::Base64::decode_base64($auth)), $config);
+	    # Get username and password from Apache and hand over to authen
+        $auth =~ s/Basic //;
+        authen($request, split(":", MIME::Base64::decode_base64($auth), 2), $config); 
     }
-	else { # realm oriented
-		$request->push_handlers(PerlAuthenHandler => sub { return WebGUI::authen($request, undef, undef, $config)});
-	}
+    else { # realm oriented
+	    $request->push_handlers(PerlAuthenHandler => sub { return WebGUI::authen($request, undef, undef, $config)});
+    }
+
 	
 	# url handlers
     WEBGUI_FATAL: foreach my $handler (@{$config->get("urlHandlers")}) {

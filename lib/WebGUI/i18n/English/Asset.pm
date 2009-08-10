@@ -26,6 +26,12 @@ our $I18N = {
 		context => q|help for the keywords property|
 	},
 
+	'keywords template var' => {
+		message => q|This will be a string with the keywords for this asset.  Individual keywords will be joined with spaces, unless the keyword contains spaces, in which case it will be quoted.|,
+		lastUpdated => 0,
+		context => q|help for the keywords template variable|
+	},
+
 	'add the missing page' => {
 		message => q|Add the missing page.|,
 		lastUpdated => 0,
@@ -211,13 +217,55 @@ our $I18N = {
 	'restore' => {
 		message => q|Restore|,
 		lastUpdated => 0,
-		context => q|Used in asset context menus.|
+		context => q|Used in asset context menus.|,
 	},
 
 	'promote' => {
 		message => q|Promote|,
 		lastUpdated => 0,
-		context => q|Used in asset context menus.|
+		context => q|Used in asset context menus.|,
+	},
+
+	'promote %s' => {
+		message => q|promote %s|,
+		lastUpdated => 0,
+		context => q|Used in asset context menus.|,
+	},
+
+	'Set Rank' => {
+		message => q|Set Rank|,
+		lastUpdated => 0,
+		context => q|Set, to assign.  Rank, meaning order.|,
+	},
+
+	'moving %s aside' => {
+		message => q|moving %s aside|,
+		lastUpdated => 0,
+		context => q||,
+	},
+
+	'moving %s back' => {
+		message => q|moving %s back|,
+		lastUpdated => 0,
+		context => q||,
+	},
+
+	'moving %s' => {
+		message => q|moving %s|,
+		lastUpdated => 0,
+		context => q||,
+	},
+
+	'swap first' => {
+		message => q|swap first|,
+		lastUpdated => 0,
+		context => q|swap, to exchange places|,
+	},
+
+	'swap second' => {
+		message => q|swap second|,
+		lastUpdated => 0,
+		context => q|swap, to exchange places|,
 	},
 
 	'promote help' => {
@@ -234,6 +282,12 @@ our $I18N = {
 	'demote help' => {
 		message => q|Move this Asset down one spot on the page.|,
 		lastUpdated => 0,
+	},
+
+	'demote %s' => {
+		message => q|demote %s|,
+		lastUpdated => 0,
+		context => q|Used in asset context menus.|,
 	},
 
 	'cut' => {
@@ -258,6 +312,41 @@ our $I18N = {
 		message => q|copy|,
 		lastUpdated => 1221540088,
 		context => q|Same as Copy, but lower case.|
+	},
+
+	'Paste' => {
+		message => q|Paste|,
+		lastUpdated => 1245342798,
+		context => q|To remove an item from the clipboard, and put it on the current page.|
+	},
+
+	'Paste Assets' => {
+		message => q|Paste Assets|,
+		lastUpdated => 1245342798,
+	},
+
+	'pasting %s' => {
+		message => q|pasting %s|,
+		lastUpdated => 1245343280,
+		context => q|short for "I am pasting this asset onto the page."|
+	},
+
+	'indexing %s' => {
+		message => q|indexing %s|,
+		lastUpdated => 1245343280,
+		context => q|short for "I am adding this asset to the search index"|
+	},
+
+	'skipping %s' => {
+		message => q|skipping %s|,
+		lastUpdated => 1245343280,
+		context => q|To skip, to move over, to not process|
+	},
+
+	'editing %s' => {
+		message => q|editing %s|,
+		lastUpdated => 1245343280,
+		context => q|To edit or change|
 	},
 
 	'this asset only' => {
@@ -572,15 +661,16 @@ you wish to appear, one per line.<br />
 <br />If you want a different label for a value, the possible values list has to be
 formatted as follows:
 <pre>
-&#123;
-   "key1"=>"value1",
-   "key2"=>"value2",
-   "key3"=>"value3"
-   ...
-&#125;
+label1\|value1
+label2\|value2
+label3\|value3
+value4
+...
 </pre>
-Braces, quotes and all.  You simply replace "key1"/"value1" with your own name/value pairs|,
-        lastUpdated => 1213247476,
+With a \| character separating the label and value. Do not put spaces before or after the \|.  Also, note
+that you can mix lines with different labels with lines with the same label.<br />
+If you are building a selectBox, a Select entry will automatically be added to the list of options.|,
+        lastUpdated => 1243611956,
     },
 
 	'metadata edit property' => {
@@ -1194,6 +1284,84 @@ Couldn't open %-s because %-s <br />
         message     => q{Asset History},
         lastUpdated => 0,
         context     => q{Admin Console label.  Shows the history of assets in this site.},
+    },
+
+    'usePackedHeadTags label' => {
+        message     => q{Use Packed Head Tags},
+        lastUpdated => 0,
+        context     => q{Label for asset property},
+    },
+
+    'usePackedHeadTags description' => {
+        message     => q{Use the packed version of the head tags for faster downloads},
+        lastUpdated => 0,
+        context     => q{Description of asset property},
+    },
+
+    'Error getting asset with assetId %s' => {
+        message     => q{Error getting asset with assetId %s},
+        lastUpdated => 0,
+        context     => q{Generic error when an asset cannot be looked up by assetId},
+    },
+
+    'You cannot edit the asset %s, skipping' => {
+        message     => q{You cannot edit the asset %s, skipping},
+        lastUpdated => 0,
+        context     => q{Generic error when an asset cannot be edited},
+    },
+
+    'Purging %s' => {
+        message     => q{Purging %s},
+        lastUpdated => 0,
+        context     => q{},
+    },
+
+    'Trying to delete system page %s.  Aborting' => {
+        message     => q{Trying to delete system page %s.  Aborting},
+        lastUpdated => 0,
+        context     => q{},
+    },
+
+    'Undefined child' => {
+        message     => q{Trying to delete system page %s.  Aborting purge},
+        lastUpdated => 0,
+        context     => q{},
+    },
+
+    'Purging shortcuts' => {
+        message     => q{Purging shortcuts},
+        lastUpdated => 0,
+        context     => q{},
+    },
+
+    'Deleting exported files' => {
+        message     => q{Deleting exported files},
+        lastUpdated => 0,
+        context     => q{},
+    },
+
+    'Deleting keywords' => {
+        message     => q{Deleting keywords},
+        lastUpdated => 0,
+        context     => q{},
+    },
+
+    'Clearing search index' => {
+        message     => q{Clearing search index},
+        lastUpdated => 0,
+        context     => q{},
+    },
+
+    'Clearing cache' => {
+        message     => q{Clearing cache},
+        lastUpdated => 0,
+        context     => q{},
+    },
+
+    'Clearing asset tables' => {
+        message     => q{Clearing asset tables},
+        lastUpdated => 0,
+        context     => q{},
     },
 
 };

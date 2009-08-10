@@ -25,6 +25,7 @@ use base 'WebGUI::Asset::Wobject';
 
 use DateTime;
 use JSON;
+use Text::Wrap;
 
 =head1 NAME
 
@@ -138,7 +139,7 @@ sub definition {
         # List
         templateIdList => {
             fieldType       => "template",  
-            defaultValue    => '',
+            defaultValue    => 'kj3b-X3i6zRKnhLb4ZiCLw',
             tab             => "display",
             namespace       => "Calendar/List", 
             hoverHelp       => $i18n->get('editForm templateIdList description'),
@@ -671,11 +672,22 @@ TODO: Allow WebGUI::DateTime objects to be passed as the parameters.
 
 This is the main API method to get events from a calendar, so it must be flexible.
 
-C<options> is a hash reference with the following keys:
+=head3 startDate
 
- order                  - The order to return the events. Will default to the
-                        sortEventsBy asset property. Valid values are:
-                        'time', 'sequenceNumber'
+A date, with optional time, in UTC, in MySQL format.
+
+=head3 endDate
+
+A date, with optional time, in UTC, in MySQL format.
+
+=head3 options
+
+A hash reference with any the following keys and values:
+
+=head4 order
+
+The order to return the events. Will default to the sortEventsBy asset property.
+Valid values are: 'time', 'sequenceNumber'
 
 =cut
 
@@ -688,8 +700,6 @@ sub getEventsIn {
     $params->{order} = '' if $params->{order} !~ /^(?:time|sequencenumber)/i;
     my $order_by_type = $params->{order} ? lc($params->{order}) : $self->get('sortEventsBy');
 
-    my $tz      = $self->session->datetime->getTimeZone;
-    
     # Warn and return undef if no startDate or endDate
     unless ($start && $end) {
         $self->session->errorHandler->warn("WebGUI::Asset::Wobject::Calendar->getEventsIn() called with not enough arguments at ".join('::',(caller)[1,2]));
@@ -698,21 +708,14 @@ sub getEventsIn {
     
     # Create objects and adjust for timezone
     
-    my ($startDate,$startTime)    = split / /, $start;
-    my ($endDate,$endTime)        = split / /, $end;
-    
-    #use Data::Dumper;
-    #$self->session->errorHandler->warn( Dumper [caller(1), caller(2), caller(3)] );
-    my $startTz  = WebGUI::DateTime->new($self->session, mysql => $start, time_zone => $tz)
-                    ->set_time_zone("UTC")->toMysql;
-    my $endTz    = WebGUI::DateTime->new($self->session, mysql => $end, time_zone => $tz)
-                    ->set_time_zone("UTC")->toMysql;
-    
+    my ($startDate)    = split / /, $start;
+    my ($endDate)      = split / /, $end;
+
     my $where    
         = qq{ 
                 ( 
-                    Event.startTime IS NULL 
-                    && Event.endTime IS NULL 
+                       Event.startTime IS NULL 
+                    && Event.endTime   IS NULL 
                     && 
                         !(
                             Event.startDate >= '$endDate' 
@@ -720,8 +723,8 @@ sub getEventsIn {
                         )
                 ) 
                 || ( 
-                    CONCAT(Event.startDate,' ',Event.startTime) >= '$startTz' 
-                    && CONCAT(Event.startDate,' ',Event.startTime) < '$endTz'
+                       CONCAT(Event.startDate,' ',Event.startTime) >= '$start' 
+                    && CONCAT(Event.startDate,' ',Event.startTime) <  '$end'
                 )
         };
 
@@ -739,7 +742,6 @@ sub getEventsIn {
 
     my $orderby = join ',', @order_priority;
 
-    
     my $events 
         = $self->getLineage(["descendants"], {
             returnObjects       => 1,
@@ -748,9 +750,9 @@ sub getEventsIn {
             orderByClause       => $orderby,
             whereClause         => $where,
         });
-    
+
     #? Perhaps use Stow to cache Events ?#
-    
+
     return @{$events};
 }
 
@@ -903,6 +905,13 @@ sub prepareView {
     #$self->session->errorHandler->warn("Prepare view ".$view." with template ".$self->get("templateId".$view));
     
     my $template = WebGUI::Asset::Template->new($self->session, $self->get("templateId".$view));
+    if (!$template) {
+        WebGUI::Error::ObjectNotFound::Template->throw(
+            error      => qq{Template not found},
+            templateId => $self->get("templateId".$view),
+            assetId    => $self->getId,
+        );
+    }
     $template->prepare($self->getMetaDataAsTemplateVariables);
     
     $self->{_viewTemplate} = $template;
@@ -1210,7 +1219,8 @@ sub viewList {
 
     ### Build the event vars
     my $dtLast = $dtStart; # The DateTime of the last event
-    for my $event (@events) {
+    EVENT: for my $event (@events) {
+        next EVENT unless $event && $event->canView();
         my ( %eventVar, %eventDate )
             = $self->getEventVars( $event );
 
@@ -1423,6 +1433,7 @@ sub viewWeek {
     #### Get all the events in this time period
     # Get the range of the epoch of this week
     my $dt      = WebGUI::DateTime->new($self->session, $params->{start});
+    $dt->set_time_zone($tz);
     $dt->truncate( to => "day");
     
     # Apply First Day of Week settings
@@ -1461,7 +1472,7 @@ sub viewWeek {
            # Get the week this event is in, and add it to that week in
            # the template variables
            my $dt_event_start = $event->getDateTimeStart;
-           my $dt_event_end   = $event->getDateTimeEnd;
+           my $dt_event_end   = $event->getDateTimeEndNI;
            
            #Handle events that start before this week or end after this week.
            if ($dt_event_start < $dt) {
@@ -1473,7 +1484,7 @@ sub viewWeek {
            }
            
            my $start_dow = ($dt_event_start->day_of_week - $first_dow) % 7;
-           my $end_dow = ($dt_event_end->day_of_week - $first_dow) % 7;
+           my $end_dow   = ($dt_event_end->day_of_week   - $first_dow) % 7;
 
            my $sequence_number = $session->db->dbh->selectcol_arrayref(
                "SELECT sequenceNumber FROM Event WHERE assetId = ? ORDER BY revisionDate desc LIMIT 1",
@@ -1627,26 +1638,26 @@ sub viewWeek {
         # Get the week this event is in, and add it to that week in
         # the template variables
         my $dt_event_start = $event->getDateTimeStart;
-        my $dt_event_end   = $event->getDateTimeEnd;
+        my $dt_event_end   = $event->getDateTimeEndNI;
 
         #Handle events that start before this week or end after this week.
         if ($dt_event_start < $dt) {
-            $dt_event_start = $dt;
+            $dt_event_start = $dt->clone;
         }
 
         if ($dt_event_end > $dtEnd) {
-            $dt_event_end = $dtEnd;
+            $dt_event_end = $dtEnd->clone;
         }
 
         my $start_dow = ($dt_event_start->day_of_week - $first_dow) % 7;
-        my $end_dow = ($dt_event_end->day_of_week - $first_dow) % 7;
+        my $end_dow   = ($dt_event_end->day_of_week  - $first_dow) % 7;
 
         my %eventTemplateVariables = $self->getEventVars($event);
 
         foreach my $weekDay ($start_dow .. $end_dow) {
             my $eventAssetId = $event->get( 'assetId' );
 
-           my %hash = %eventTemplateVariables;
+            my %hash = %eventTemplateVariables;
 
             if ($sort_by_sequence && $can_edit_order) {
                if (1) {
@@ -1724,14 +1735,16 @@ that ; , \ and newlines should be escaped by prepending them with a \.
 sub wrapIcal {
     my $self    = shift;
     my $text    = shift;
-    
-    return $text unless length $text >= 75;
-    
+
     $text       =~ s/([,;\\])/\\$1/g;
     $text       =~ s/\n/\\n/g;
-    
-    my @text    = ($text =~ m/.{0,75}/g);
-    return join "\r\n ",@text;
+
+    {
+        local $Text::Wrap::separator = "\r\n";
+        local $Text::Wrap::columns   = 74;
+        $text = Text::Wrap::wrap('', ' ', $text);
+    }
+    return $text;
 }
 
 #----------------------------------------------------------------------------

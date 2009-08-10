@@ -19,8 +19,16 @@ use WebGUI::Utility;
 use base 'WebGUI::Asset::Wobject';
 use WebGUI::Asset::Wobject::Survey::SurveyJSON;
 use WebGUI::Asset::Wobject::Survey::ResponseJSON;
+use WebGUI::Form::Country;
+use WebGUI::VersionTag;
+use Text::CSV_XS;
 use Params::Validate qw(:all);
 Params::Validate::validation_options( on_fail => sub { WebGUI::Error::InvalidParam->throw( error => shift ) } );
+
+my $TAP_PARSER_MISSING = <<END_WARN;
+The Survey Test Suite feature requires TAP::Parser and TAP::Parser::Aggregator CPAN modules. 
+These will be installed as a dependency if you upgrade to Test::Harness 3.x
+END_WARN
 
 #-------------------------------------------------------------------
 
@@ -42,27 +50,13 @@ sub definition {
     my %properties;
     tie %properties, 'Tie::IxHash'; ## no critic
     %properties = (
-        templateId => {
-            fieldType    => 'template',
-            defaultValue => 'PBtmpl0000000000000061',
-            tab          => 'display',
-            namespace    => 'Survey',
-            label        => $i18n->get('survey template'),
-            hoverHelp    => $i18n->get('survey template help'),
-        },
-        showProgress => {
-            fieldType    => 'yesNo',
-            defaultValue => 0,
+        # Properties Tab
+        exitURL => {
+            fieldType    => 'text',
+            defaultValue => undef,
             tab          => 'properties',
-            label        => $i18n->get('Show user their progress'),
-            hoverHelp    => $i18n->get('Show user their progress help'),
-        },
-        showTimeLimit => {
-            fieldType    => 'yesNo',
-            defaultValue => 0,
-            tab          => 'properties',
-            label        => $i18n->get('Show user their time remaining'),
-            hoverHelp    => $i18n->get('Show user their time remaining'),
+            label        => $i18n->get('Survey Exit URL'),
+            hoverHelp    => $i18n->get('Survey Exit URL help'),
         },
         timeLimit => {
             fieldType    => 'integer',
@@ -82,35 +76,31 @@ sub definition {
                                 'restartSurvey' => $i18n->get('restart survey label'),
                             },
         },
-        groupToEditSurvey => {
-            fieldType    => 'group',
-            defaultValue => 4,
-            label        => $i18n->get('Group to edit survey'),
-            hoverHelp    => $i18n->get('Group to edit survey help'),
-        },
-        groupToTakeSurvey => {
-            fieldType    => 'group',
-            defaultValue => 2,
-            label        => $i18n->get('Group to take survey'),
-            hoverHelp    => $i18n->get('Group to take survey help'),
-        },
-        groupToViewReports => {
-            fieldType    => 'group',
-            defaultValue => 4,
-            label        => $i18n->get('Group to view reports'),
-            hoverHelp    => $i18n->get('Group to view reports help'),
-        },
-        exitURL => {
-            fieldType    => 'text',
+        onSurveyEndWorkflowId => {
+            tab          => 'properties',
             defaultValue => undef,
-            label        => $i18n->get('Survey Exit URL'),
-            hoverHelp    => $i18n->get('Survey Exit URL help'),
+            type         => 'WebGUI::Asset::Wobject::Survey',
+            fieldType    => 'workflow',
+            label        => 'Survey End Workflow',
+            hoverHelp    => 'Workflow to run when user completes the Survey',
+            none => 1,
         },
-        maxResponsesPerUser => {
-            fieldType    => 'integer',
-            defaultValue => 1,
-            label        => $i18n->get('Max user responses'),
-            hoverHelp    => $i18n->get('Max user responses help'),
+        allowBackBtn => {
+            fieldType    => 'yesNo',
+            defaultValue => 0,
+            tab          => 'properties',
+            label        => $i18n->get('Allow back button'),
+            hoverHelp    => $i18n->get('Allow back button help'),
+        },
+        
+        # Display Tab
+        templateId => {
+            fieldType    => 'template',
+            defaultValue => 'PBtmpl0000000000000061',
+            tab          => 'display',
+            namespace    => 'Survey',
+            label        => $i18n->get('survey template'),
+            hoverHelp    => $i18n->get('survey template help'),
         },
         surveySummaryTemplateId => {
             tab          => 'display',
@@ -168,6 +158,14 @@ sub definition {
             defaultValue => 'AjhlNO3wZvN5k4i4qioWcg',
             namespace    => 'Survey/Edit',
         },
+        feedbackTemplateId => {
+            tab          => 'display',
+            fieldType    => 'template',
+            defaultValue => 'nWNVoMLrMo059mDRmfOp9g',
+            label        => $i18n->get('Feedback Template'),
+            hoverHelp    => $i18n->get('Feedback Template help'),
+            namespace    => 'Survey/Feedback',
+        },
         overviewTemplateId => {
             tab          => 'display',
             fieldType    => 'template',
@@ -184,34 +182,72 @@ sub definition {
             defaultValue => 'PBtmpl0000000000000062',
             namespace    => 'Survey/Gradebook',
         },
+        testResultsTemplateId => {
+            tab          => 'display',
+            fieldType    => 'template',
+            label        => $i18n->get('test results template'),
+            hoverHelp    => $i18n->get('test results template help'),
+            defaultValue => 'S3zpVitAmhy58CAioH359Q',
+            namespace    => 'Survey/TestResults',
+        },
+        showProgress => {
+            fieldType    => 'yesNo',
+            defaultValue => 0,
+            tab          => 'display',
+            label        => $i18n->get('Show user their progress'),
+            hoverHelp    => $i18n->get('Show user their progress help'),
+        },
+        showTimeLimit => {
+            fieldType    => 'yesNo',
+            defaultValue => 0,
+            tab          => 'display',
+            label        => $i18n->get('Show user their time remaining'),
+            hoverHelp    => $i18n->get('Show user their time remaining'),
+        },
+        quizModeSummary => {
+            fieldType    => 'yesNo',
+            defaultValue => 0,
+            tab          => 'display',
+            label        => $i18n->get('Quiz mode summaries'),
+            hoverHelp    => $i18n->get('Quiz mode summaries help'),
+        },
+        
+        # Security Tab
+        groupToEditSurvey => {
+            fieldType    => 'group',
+            tab          => 'security',
+            defaultValue => 4,
+            label        => $i18n->get('Group to edit survey'),
+            hoverHelp    => $i18n->get('Group to edit survey help'),
+        },
+        groupToTakeSurvey => {
+            fieldType    => 'group',
+            tab          => 'security',
+            defaultValue => 2,
+            label        => $i18n->get('Group to take survey'),
+            hoverHelp    => $i18n->get('Group to take survey help'),
+        },
+        groupToViewReports => {
+            fieldType    => 'group',
+            tab          => 'security',
+            defaultValue => 4,
+            label        => $i18n->get('Group to view reports'),
+            hoverHelp    => $i18n->get('Group to view reports help'),
+        },
+        maxResponsesPerUser => {
+            fieldType    => 'integer',
+            tab          => 'security',
+            defaultValue => 1,
+            label        => $i18n->get('Max user responses'),
+            hoverHelp    => $i18n->get('Max user responses help'),
+        },
+        
+        # Other
         surveyJSON => {
             fieldType    => 'text',
             defaultValue => '',
             autoGenerate => 0,
             noFormPost  => 1, 
-        },
-        onSurveyEndWorkflowId => {
-            tab          => 'properties',
-            defaultValue => undef,
-            type         => 'WebGUI::Asset::Wobject::Survey',
-            fieldType    => 'workflow',
-            label        => 'Survey End Workflow',
-            hoverHelp    => 'Workflow to run when user completes the Survey',
-            none => 1,
-        },
-        quizModeSummary => {
-            fieldType    => 'yesNo',
-            defaultValue => 0,
-            tab          => 'properties',
-            label        => $i18n->get('Quiz mode summaries'),
-            hoverHelp    => $i18n->get('Quiz mode summaries help'),
-        },
-        allowBackBtn => {
-            fieldType    => 'yesNo',
-            defaultValue => 0,
-            tab          => 'properties',
-            label        => $i18n->get('Allow back button'),
-            hoverHelp    => $i18n->get('Allow back button help'),
         },
     );
 
@@ -419,15 +455,13 @@ sub responseJSON {
     my $self = shift;
     my ($json, $responseId) = validate_pos(@_, { type => SCALAR | UNDEF, optional => 1 }, { type => SCALAR, optional => 1});
     
-    if (!defined $responseId) {
-        $responseId = $self->responseId;
-    }
+    $responseId ||= $self->responseId;
      
     if (!$self->{_responseJSON} || $json) {
 
         # See if we need to load responseJSON from the database
         if (!defined $json) {
-            $json = $self->session->db->quickScalar( 'select responseJSON from Survey_response where assetId = ? and Survey_responseId = ?', [ $self->getId, $responseId ] );
+            $json = $self->session->db->quickScalar( 'select responseJSON from Survey_response where Survey_responseId = ?', [ $responseId ] );
             $json = $self->session->crypt->decrypt_hex($json) if($json);
         }
 
@@ -436,6 +470,244 @@ sub responseJSON {
     }
     
     return $self->{_responseJSON};
+}
+
+=head2 getGraphFormats 
+
+Returns the list of supported Graph formats
+
+=cut
+
+sub getGraphFormats {
+    return qw(text ps gif jpeg png svg svgz plain);
+}
+
+=head2 getGraphLayouts
+
+Returns the list of supported Graph layouts
+
+=cut
+
+sub getGraphLayouts {
+    return qw(dot neato twopi circo fdp);
+}
+
+#-------------------------------------------------------------------
+
+=head2 graph ( )
+
+Generates a graph visualisation to survey.svg using GraphViz.
+
+=cut
+
+sub graph {
+    my $self = shift;
+    my %args = validate(@_, { format => 1, layout => 1 });
+    
+    my $session = $self->session;
+
+    eval { require GraphViz };
+    if ($@) {
+        return;
+    }
+    
+    my $format = $args{format};
+    if (! grep {$_ eq $format} $self->getGraphFormats) {
+        $session->log->warn("Invalid format: $format");
+        return;
+    }
+    
+    my $layout = $args{layout};
+    if (! grep {$_ eq $layout} $self->getGraphLayouts) {
+        $session->log->warn("Invalid layout: $layout");
+        return;
+    }
+    
+    my $filename = "survey.$format";
+    my $storage = WebGUI::Storage->createTemp($session);
+    $storage->addFileFromScalar($filename);
+    my $path = $storage->getPath($filename);
+
+    my $FONTSIZE = 10;
+    my %COLOR = (
+        bg                   => 'white',
+        start                => 'CornflowerBlue',
+        start_fill           => 'Green',
+        section              => 'CornflowerBlue',
+        section_fill         => 'LightYellow',
+        question             => 'CornflowerBlue',
+        question_fill        => 'LightBlue',
+        start_edge           => 'Green',
+        fall_through_edge    => 'CornflowerBlue',
+        goto_edge            => 'DarkOrange',
+        goto_expression_edge => 'DarkViolet',
+    );
+
+    # Create the GraphViz object used to generate the image
+    # N.B. dot gives vertical layout, neato gives purdy circular
+    my $g = GraphViz->new( bgcolor => $COLOR{bg}, fontsize => $FONTSIZE, layout => $layout); # overlap => 'orthoyx'
+
+    $g->add_node(
+        'Start',
+        label     => 'Start',
+        fontsize  => $FONTSIZE,
+        shape     => 'ellipse',
+        style     => 'filled',
+        color     => $COLOR{start},
+        fillcolor => $COLOR{start_fill},
+    );
+
+    my $very_first = 1;
+
+    my $add_goto_edge = sub {
+        my ( $obj, $id, $taillabel ) = @_;
+        return unless $obj;
+
+        if ( my $goto = $obj->{goto} ) {
+            $g->add_edge(
+                $id => $goto,
+                taillabel => $taillabel || 'Jump To',
+                labelfontcolor => $COLOR{goto_edge},
+                labelfontsize  => $FONTSIZE,
+                color          => $COLOR{goto_edge},
+            );
+        }
+    };
+
+    my $add_goto_expression_edges = sub {
+        my ( $obj, $id, $taillabel ) = @_;
+        return unless $obj;
+        return unless $obj->{gotoExpression};
+
+        my $rj = 'WebGUI::Asset::Wobject::Survey::ResponseJSON';
+
+#        for my $gotoExpression ( split /\n/, $obj->{gotoExpression} ) {
+#            if ( my $processed = $rj->parseGotoExpression( $session, $gotoExpression ) ) {
+#                $g->add_edge(
+#                    $id            => $processed->{target},
+#                    taillabel      => $taillabel ? "$taillabel: $processed->{expression}" :  $processed->{expression},
+#                    labelfontcolor => $COLOR{goto_expression_edge},
+#                    labelfontsize  => $FONTSIZE,
+#                    color          => $COLOR{goto_expression_edge},
+#                );
+#            }
+#        }
+    };
+
+    my @fall_through;
+    my $sNum = 0;
+    foreach my $s ( @{ $self->surveyJSON->sections } ) {
+        $sNum++;
+
+        my $s_id = $s->{variable} || "S$sNum";
+        $g->add_node(
+            $s_id,
+            label     => "$s_id\n($s->{questionsPerPage} questions per page)",
+            fontsize  => $FONTSIZE,
+            shape     => 'ellipse',
+            style     => 'filled',
+            color     => $COLOR{section},
+            fillcolor => $COLOR{section_fill},
+        );
+
+        # See if this is the very first node
+        if ($very_first) {
+            $g->add_edge(
+                'Start'        => $s_id,
+                taillabel      => 'Begin Survey',
+                labelfontcolor => $COLOR{start_edge},
+                labelfontsize  => $FONTSIZE,
+                color          => $COLOR{start_edge},
+            );
+            $very_first = 0;
+        }
+
+        # See if there are any fall_throughs waiting
+        # if so, "next" == this section
+        while ( my $f = pop @fall_through ) {
+            $g->add_edge(
+                $f->{from}     => $s_id,
+                taillabel      => $f->{taillabel},
+                labelfontcolor => $COLOR{fall_through_edge},
+                labelfontsize  => $FONTSIZE,
+                color          => $COLOR{fall_through_edge},
+            );
+        }
+
+        # Add section-level goto and gotoExpression edges
+        $add_goto_edge->( $s, $s_id );
+        $add_goto_expression_edges->( $s, $s_id );
+
+        my $qNum = 0;
+        foreach my $q ( @{ $s->{questions} } ) {
+            $qNum++;
+
+            my $q_id = $q->{variable} || "S$sNum-Q$qNum";
+
+            # Link Section to first Question
+            if ( $qNum == 1 ) {
+                $g->add_edge( $s_id => $q_id, style => 'dotted' );
+            }
+
+            # Add Question node
+            $g->add_node(
+                $q_id,
+                label     => $q->{required} ? "$q_id *" : $q_id,
+                fontsize  => $FONTSIZE,
+                shape     => 'ellipse',
+                style     => 'filled',
+                color     => $COLOR{question},
+                fillcolor => $COLOR{question_fill},
+            );
+
+            # See if there are any fall_throughs waiting
+            # if so, "next" == this question
+            while ( my $f = pop @fall_through ) {
+                $g->add_edge(
+                    $f->{from}     => $q_id,
+                    taillabel      => $f->{taillabel},
+                    labelfontcolor => $COLOR{fall_through_edge},
+                    labelfontsize  => $FONTSIZE,
+                    color          => $COLOR{fall_through_edge},
+                );
+            }
+
+            # Add question-level goto and gotoExpression edges
+            $add_goto_edge->( $q, $q_id );
+            $add_goto_expression_edges->( $q, $q_id );
+
+            my $aNum = 0;
+            foreach my $a ( @{ $q->{answers} } ) {
+                $aNum++;
+
+                my $a_id = $a->{text} || "S$sNum-Q$qNum-A$aNum";
+
+                $add_goto_expression_edges->( $a, $q_id, $a_id );
+                if ( $a->{goto} ) {
+                    $add_goto_edge->( $a, $q_id, $a_id );
+                }
+                else {
+
+                    # Link this question to next question with Answer as taillabel
+                    push @fall_through,
+                        {
+                        from      => $q_id,
+                        taillabel => $a_id,
+                        };
+                }
+            }
+        }
+    }
+
+    # Render the image to a file
+    my $method = "as_$format";
+    $g->$method($path);
+    
+    if (wantarray) {
+        return ( $storage, $filename);
+    } else {
+        return $storage->getUrl($filename);
+    }
 }
 
 #-------------------------------------------------------------------
@@ -451,8 +723,178 @@ sub www_editSurvey {
     
     return $self->session->privilege->insufficient()
         if !$self->session->user->isInGroup( $self->get('groupToEditSurvey') );
-
+    
+    return $self->session->privilege->locked() unless $self->canEditIfLocked;
     return $self->processTemplate( {}, $self->get('surveyEditTemplateId') );
+}
+
+#-------------------------------------------------------------------
+
+=head2 getAdminConsole 
+
+Extends the base class to add in survey controls like edit, view graph, run tests, and
+test suite.
+
+=cut
+
+sub getAdminConsole {
+    my $self = shift;
+    my $ac = $self->SUPER::getAdminConsole;
+    my $i18n = WebGUI::International->new($self->session, "Asset_Survey");
+    $ac->addSubmenuItem($self->session->url->page("func=edit"), WebGUI::International->new($self->session, "WebGUI")->get(575));
+    $ac->addSubmenuItem($self->session->url->page("func=editSurvey"), $i18n->get('edit survey'));
+    $ac->addSubmenuItem($self->session->url->page("func=takeSurvey"), $i18n->get('take survey'));
+    $ac->addSubmenuItem($self->session->url->page("func=graph"), $i18n->get('visualize'));
+    $ac->addSubmenuItem($self->session->url->page("func=editTestSuite"), $i18n->get("test suite"));
+    $ac->addSubmenuItem($self->session->url->page("func=runTests"), $i18n->get("run all tests"));
+    $ac->addSubmenuItem($self->session->url->page("func=runTests;format=tap"), $i18n->get("run all tests") . " (TAP)");
+    return $ac;
+}
+
+#-------------------------------------------------------------------
+
+=head2 www_graph ( )
+
+Visualize the Survey in the requested format and layout
+
+=cut
+
+sub www_graph {
+    my $self = shift;
+    
+    my $session = $self->session;
+    
+    return $self->session->privilege->insufficient()
+        if !$self->session->user->isInGroup( $self->get('groupToEditSurvey') );
+
+    my $i18n = WebGUI::International->new($session, "Asset_Survey");
+    
+    my $ac   = $self->getAdminConsole;
+    
+    eval { require GraphViz };
+    if ($@) {
+        return $ac->render('Survey Visualization requires the GraphViz module', $i18n->get('survey visualization'));
+    }
+    
+    my $format = $self->session->form->param('format');
+    my $layout = $self->session->form->param('layout');
+    
+    my $f = WebGUI::HTMLForm->new($session);
+    $f->hidden(
+        name=>'func',
+        value=>'graph'
+    );
+    $f->selectBox(
+        name      => 'format',
+        label     => $i18n->get('visualization format'),
+        hoverHelp => $i18n->get('visualization format help'),
+        options =>  { map { $_ => $_ } $self->getGraphFormats },
+        defaultValue => [$format],
+        sortByValue => 1,
+    );
+    $f->selectBox(
+        name      => 'layout',
+        label     => $i18n->get('visualization layout algorithm'),
+        hoverHelp => $i18n->get('visualization layout algorithm help'),
+        options =>  { map { $_ => $_ } $self->getGraphLayouts },
+        defaultValue => [$layout],
+        sortByValue => 1,
+    );
+    $f->submit(
+        defaultValue => $i18n->get('generate'),
+    );
+    
+    my $output;
+    if ($format && $layout) {
+        if (my $url = $self->graph( { format => $format, layout => $layout } )) {
+            $output .= "<p>" . $i18n->get('visualization success') . qq{ <a href="$url">survey.$format</a></p>};
+        }
+    }
+    return $ac->render($f->print . $output, $i18n->get('survey visualization'));
+}
+
+=head2 hasResponses
+
+Returns true if this Survey instance revision has any responses (started, finished or otherwise)
+associated with it
+
+=cut
+
+sub hasResponses {
+    my $self = shift;
+    my $session = $self->session;
+    
+    return $self->session->db->quickScalar(
+        'select count(*) from Survey_response where assetId = ? and revisionDate = ?',
+        [ $self->getId, $self->get('revisionDate') ] ) > 0;
+}
+
+#-------------------------------------------------------------------
+
+=head2 submitObjectEdit ( $params )
+
+Called by L<www_submitObjectEdit> when an edit is submitted to a survey object.
+
+A new revision of this Survey object will be created automatically if any responses exist for the current
+revision (completed or in-progress). This ensures that the revision bound to a response never changes once
+a response has been started.
+
+=head3 params
+
+The updated params of the object. If the special hash keys "delete", "copy", "removetype" or "addtype" are present,
+these special actions will be carried out by delegating to e.g. L<deleteObject>, L<copyObject>, etc..
+
+=cut
+
+sub submitObjectEdit {
+    my $self = shift;
+    my $params = shift || {};
+    my $session = $self->session;
+
+    # Id is made up of at most: sectionIndex-questionIndex-answerIndex
+    my @address = split /-/, $params->{id};
+
+    # Get a reference to the Survey instance that we want to perform updates on
+    my $survey = $self;
+    
+    # We will create a new revision if any responses exist for the current revision
+    if ($self->hasResponses) {
+        $self->session->log->debug( "Creating a new revision, responses exist for the current revision: "
+                . $self->get('revisionDate') );
+        
+        # New revision should be created and then committed automatically
+        my $oldVersionTag = WebGUI::VersionTag->getWorking($session, 'noCreate');
+        my $newVersionTag = WebGUI::VersionTag->create($session, { workflowId => 'pbworkflow00000000003', });
+        $newVersionTag->setWorking;
+        
+        # Create the new revision
+        $survey = $self->addRevision;
+        
+        $newVersionTag->commit();
+        
+        #Restore the old one, if it exists
+        $oldVersionTag->setWorking() if $oldVersionTag;
+    }
+
+    # See if any special actions were requested..
+    if ( $params->{delete} ) {
+        return $survey->deleteObject( \@address );
+    }
+    elsif ( $params->{copy} ) {
+        return $survey->copyObject( \@address );
+    }
+    elsif ( $params->{removetype} ) {
+        return $survey->removeType( \@address );
+    }
+    elsif ( $params->{addtype} ) {
+        return $survey->addType( $params->{addtype}, \@address );
+    }
+
+    # Update the addressed object (and have it automatically persisted)
+    $survey->surveyJSON_update( \@address, $params );
+
+    # Return the updated Survey structure
+    return $survey->www_loadSurvey( { address => \@address } );
 }
 
 #-------------------------------------------------------------------
@@ -469,32 +911,14 @@ See L<WebGUI::Asset::Wobject::Survey::ResponseJSON/sectionIndex>.
 
 sub www_submitObjectEdit {
     my $self = shift;
-    
+
     return $self->session->privilege->insufficient()
-        if !$self->session->user->isInGroup( $self->get('groupToEditSurvey') );
+        unless $self->session->user->isInGroup( $self->get('groupToEditSurvey') );
 
-    my $params = $self->session->form->paramsHashRef();
-
-    # Id is made up of at most: sectionIndex-questionIndex-answerIndex
-    my @address = split /-/, $params->{id};
-
-    # See if any special actions were requested..
-    if ( $params->{delete} ) {
-        return $self->deleteObject( \@address );
-    }
-    elsif ( $params->{copy} ) {
-        return $self->copyObject( \@address );
-    }elsif( $params->{removetype} ){
-        return $self->removeType(\@address);        
-    }elsif( $params->{addtype} ){
-        return $self->addType($params->{addtype},\@address);        
-    }
-
-    # Update the addressed object
-    $self->surveyJSON_update( \@address, $params );
-
-    # Return the updated Survey structure
-    return $self->www_loadSurvey( { address => \@address } );
+    return $self->session->privilege->locked()
+        unless $self->canEditIfLocked;
+    
+    return $self->submitObjectEdit( $self->session->form->paramsHashRef );
 }
 
 #-------------------------------------------------------------------
@@ -507,7 +931,7 @@ point. This is useful for user-testing large Survey instances where you don't wa
 to waste your time clicking through all of the initial questions to get to the one 
 you want to look at. 
 
-Note that calling this method will delete any existing survey responses for the
+Note that calling this method will delete any in-progress survey responses for the
 current user (although only survey builders can call this method so that shouldn't be
 a problem).
 
@@ -527,8 +951,8 @@ sub www_jumpTo {
 
     $self->session->log->debug("www_jumpTo: $id");
 
-    # Remove existing responses for current user
-    $self->session->db->write( 'delete from Survey_response where assetId = ? and userId = ?',
+    # Remove any in-progress responses for current user
+    $self->session->db->write( 'delete from Survey_response where assetId = ? and userId = ? and isComplete = 0',
         [ $self->getId, $self->session->user->userId() ] );
 
     # Break the $id down into sIndex and qIndex
@@ -583,6 +1007,7 @@ sub removeType{
     my $self = shift;
     my $address = shift;
     $self->surveyJSON->removeType($address);
+    $self->persistSurveyJSON();
     return $self->www_loadSurvey( { address => $address } );
     
 }
@@ -653,6 +1078,8 @@ See L<WebGUI::Asset::Wobject::Survey::SurveyJSON/Address Parameter>
 
 sub deleteObject {
     my ( $self, $address ) = @_;
+    
+    $self->session->log->debug("Deleting object: " . join '-', @$address);
 
     # Each object checks the ref and then either updates or passes it to the correct child. 
     # New objects will have an index of -1.
@@ -718,13 +1145,15 @@ sub www_dragDrop {
     my @bid = split /-/, $p->{before}->{id};
 
     my $target = $self->surveyJSON->getObject( \@tid );
-    $self->surveyJSON_remove( \@tid, 1 );
+    $self->surveyJSON->remove( \@tid, 1 );
     my $address = [0];
     if ( @tid == 1 ) {
-
+        
         #sections can only be inserted after another section so chop off the question and answer portion of
         $#bid = 0;
         $bid[0] = -1 if ( !defined $bid[0] );
+        
+        $self->session->log->debug("Moving section $bid[0] to $tid[0]");
 
         #If target is being moved down, then before has just moved up do to the target being deleted
         $bid[0]-- if($tid[0] < $bid[0]);
@@ -910,6 +1339,13 @@ sub prepareView {
         $templateId = $self->session->form->process('overrideTemplateId');
     }
     my $template = WebGUI::Asset::Template->new( $self->session, $templateId );
+    if (!$template) {
+        WebGUI::Error::ObjectNotFound::Template->throw(
+            error      => qq{Template not found},
+            templateId => $templateId,
+            assetId    => $self->getId,
+        );
+    }
     $template->prepare;
     $self->{_viewTemplate} = $template;
     return;
@@ -958,15 +1394,16 @@ sub view {
     my $self    = shift;
     my $var     = $self->getMenuVars;
     
-    my ( $code, $overTakeLimit ) = $self->getResponseInfoForView();
-    
-    $var->{lastResponseCompleted} = $code;
-    $var->{lastResponseTimedOut}  = $code > 1 ? 1 : 0;
-    $var->{maxResponsesSubmitted} = $overTakeLimit;
-    
-    my $out = $self->processTemplate( $var, undef, $self->{_viewTemplate} );
+    my $responseDetails = $self->getResponseDetails || {};
 
-    return $out;
+    # Add lastResponse template vars
+    for my $tv qw(endDate complete restart timeout timeoutRestart) {
+        $var->{"lastResponse\u$tv"} = $responseDetails->{$tv};
+    }
+    $var->{lastResponseFeedback} = $responseDetails->{templateText};
+    $var->{maxResponsesSubmitted} = !$self->canTakeSurvey();
+    
+    return $self->processTemplate( $var, undef, $self->{_viewTemplate} );
 }
 
 #-------------------------------------------------------------------
@@ -988,7 +1425,7 @@ sub getMenuVars {
         view_transposed_results_url   => $self->getUrl('func=exportTransposedResults'),
         view_statistical_overview_url => $self->getUrl('func=viewStatisticalOverview'),
         view_grade_book_url           => $self->getUrl('func=viewGradeBook'),
-        user_canTakeSurvey            => $self->session->user->isInGroup( $self->get('groupToTakeSurvey') ),
+        user_canTakeSurvey            => $self->canTakeSurvey,
         user_canViewReports           => $self->session->user->isInGroup( $self->get('groupToViewReports') ),
         user_canEditSurvey            => $self->session->user->isInGroup( $self->get('groupToEditSurvey') ),
     };
@@ -996,68 +1433,99 @@ sub getMenuVars {
 
 #-------------------------------------------------------------------
 
-=head2 getResponseInfoForView ( )
+=head2 getResponseDetails ( [$options] )
 
-Looks to see if this user has a response, looks at the last one to see if it was completed or timed out.
-Then it checks to see if the user has reached the max number of responses.
+Looks up details about a given response.
+
+=head3 options
+
+=head4 responseId
+
+A specific responseId to use. If none given, the most recent completed response is used.
+
+=head4 userId
+
+A specific userId to use. Defaults to the current user
+
+=head4 templateId
+
+A template to use. Defaults to this Survey's feedbackTemplateId
+
+=head4 isComplete
+
+A value of isComplete to filter against (defaults to isComplete > 0)
 
 =cut
 
-sub getResponseInfoForView {
+sub getResponseDetails {
     my $self = shift;
-
-    my ( $code, $taken );
-
-    my $maxResponsesPerUser = $self->getValue('maxResponsesPerUser');
-    my $userId              = $self->session->user->userId();
-    my $anonId 
-        = $self->session->form->process('userid')
-        || $self->session->http->getCookies->{Survey2AnonId}
-        || undef;
-    $anonId && $self->session->http->setCookie( Survey2AnonId => $anonId );
-    my $ip = $self->session->env->getIp;
-    my $string;
-
-    #if there is an anonid or id is for a WG user
-    if ( $anonId or $userId != 1 ) {
-        $string = 'userId';
-        if ($anonId) {
-            $string = 'anonId';
-            $userId = $anonId;
+    my %opts = validate(@_, { userId => 0, responseId => 0, templateId => 0, isComplete => 0} );
+    my $responseId = $opts{responseId};
+    my $userId     = $opts{userId}     || $self->session->user->userId;
+    my $templateId = $opts{templateId} || $self->get('feedbackTemplateId') || 'nWNVoMLrMo059mDRmfOp9g';
+    my $isComplete = $opts{isComplete};
+    
+    # By default, get most recent completed response with any complete code (e.g. isComplete > 0)
+    # This includes abnormal finishes such as timeouts and restarts
+    my $isCompleteClause = defined $isComplete ? "isComplete = $isComplete" : 'isComplete > 0';
+    
+    if (!$responseId) {
+        ($responseId, my $revisionDate) 
+            = $self->session->db->quickArray(
+            "select Survey_responseId, revisionDate from Survey_response where userId = ? and assetId = ? and $isCompleteClause order by endDate desc limit 1", 
+            [ $userId, $self->getId ]);
+        
+        if ($responseId && $revisionDate != $self->get('revisionDate')) {
+            $self->session->log->debug("Revision Date $revisionDate for retrieved responseId $responseId does not match instantiated object " 
+            . $self->getId . " revision date " . $self->get('revisionDate') . ". getResponseDetails could possibly do weird things.");
         }
-        my $responseId
-            = $self->session->db->quickScalar(
-            "select Survey_responseId from Survey_response where $string = ? and assetId = ? and isComplete = 0",
-            [ $userId, $self->getId() ] );
-        if ( !$responseId ) {
-            $code = $self->session->db->quickScalar(
-                "select isComplete from Survey_response where $string = ? and assetId = ? and isComplete > 0 order by endDate desc limit 1",
-                [ $userId, $self->getId() ]
-            );
-        }
-        $taken
-            = $self->session->db->quickScalar(
-            "select count(*) from Survey_response where $string = ? and assetId = ? and isComplete > 0",
-            [ $userId, $self->getId() ] );
-
     }
-    elsif ( $userId == 1 ) {
-        my $responseId = $self->session->db->quickScalar(
-            'select Survey_responseId from Survey_response where userId = ? and ipAddress = ? and assetId = ? and isComplete = 0',
-            [ $userId, $ip, $self->getId() ]
-        );
-        if ( !$responseId ) {
-            $code = $self->session->db->quickScalar(
-                'select isComplete from Survey_response where userId = ? and ipAddress = ? and assetId = ? and isComplete > 0 order by endDate desc limit 1',
-                [ $userId, $ip, $self->getId() ]
-            );
-        }
-        $taken = $self->session->db->quickScalar(
-            'select count(*) from Survey_response where userId = ? and ipAddress = ? and assetId = ? and isComplete > 0',
-            [ $userId, $ip, $self->getId() ]
-        );
+    
+    if (!$responseId) {
+        $self->session->log->debug("ResponseId not found");
+        return;
     }
-    return ( $code, $maxResponsesPerUser > 0 && $taken >= $maxResponsesPerUser );
+    
+    my ( $completeCode, $endDate, $rJSON, $ruserId, $rusername ) = $self->session->db->quickArray(
+        'select isComplete, endDate, responseJSON, userId, username from Survey_response where Survey_responseId = ?',
+        [$responseId]
+    );
+
+    my $endDateEpoch = $endDate;
+    $endDate = $endDate && WebGUI::DateTime->new( $self->session, $endDate )->toUserTimeZone;
+
+    # Process the feedback text
+    my $feedback;
+    my $tags = {};
+    if ($rJSON) {
+        $rJSON = from_json($rJSON) || {};
+
+        # All tags become template vars
+        $tags = $rJSON->{tags} || {};
+        $tags->{complete}       = $completeCode == 1;
+        $tags->{restart}        = $completeCode == 2;
+        $tags->{timeout}        = $completeCode == 3;
+        $tags->{timeoutRestart} = $completeCode == 4;
+        $tags->{endDate}        = $endDate;
+        $tags->{endDateEpoch}   = $endDateEpoch;
+        $tags->{userId}         = $ruserId;
+        $tags->{username}       = $rusername;
+    }
+    return {
+        templateVars => $tags,
+        templateText => $self->processTemplate( $tags, $templateId ),
+
+        completeCode => $completeCode,
+        endDate      => $endDate,
+        endDateEpoch => $endDateEpoch,
+        userId       => $ruserId,
+        username     => $rusername,
+
+        complete       => $tags->{complete},
+        restart        => $tags->{restart},
+        timeout        => $tags->{timeout},
+        timeoutRestart => $tags->{timeoutRestart},
+    };
 }
 
 #-------------------------------------------------------------------
@@ -1065,7 +1533,8 @@ sub getResponseInfoForView {
 =head2 newByResponseId ( responseId )
 
 Class method. Instantiates a Survey instance from the given L<"responseId">, and loads the
-user response into the Survey instance.
+user response into the Survey instance. The Survey object returned will be the revision 
+bound to the response.
 
 =head3 responseId
 
@@ -1077,8 +1546,8 @@ sub newByResponseId {
     my $class = shift;
     my ($session, $responseId) = validate_pos(@_, {isa => 'WebGUI::Session'}, { type => SCALAR });
     
-    my ($assetId, $userId) = $session->db->quickArray('select assetId, userId from Survey_response where Survey_responseId = ?',
-        [$responseId]);
+    my ($assetId, $revisionDate, $userId) 
+        = $session->db->quickArray('select assetId, revisionDate, userId from Survey_response where Survey_responseId = ?', [$responseId]);
     
     if (!$assetId) {
         $session->log->warn("ResponseId not bound to valid assetId: $responseId");
@@ -1090,7 +1559,7 @@ sub newByResponseId {
         return;
     }
     
-    if (my $survey = $class->new($session, $assetId)) {
+    if (my $survey = $class->new($session, $assetId, 'WebGUI::Asset::Wobject::Survey', $revisionDate)) {
         # Set the responseId manually rather than calling $self->responseId so that we
         # can load a response regardless of whether it's marked isComplete
         $survey->{responseId} = $responseId;
@@ -1114,8 +1583,21 @@ Survey questions are loaded asynchronously via javascript calls to L<"www_loadQu
 sub www_takeSurvey {
     my $self = shift;
     
-    my $out = $self->processTemplate( {}, $self->get('surveyTakeTemplateId') );
-    return $self->session->style->process( $out, $self->get('styleTemplateId') );
+    if ( !$self->canTakeSurvey() ) {
+        $self->session->log->debug('canTakeSurvey false');
+        return;
+    }
+    
+    # The template needs to know what Survey revisionDate is bound to the response, so that
+    # it can ask for questions for the appropriate Survey revision
+    # We don't mind if the revisionDate for the retrieved response doesn't match the revisionDate
+    # for this Survey object, because this www_ method simply returns the shell that is used to
+    # retrieve the actual Survey data (using the appropriate revisionDate url param)
+    my $responseId = $self->responseId({ignoreRevisionDate => 1});
+    my $revision = $self->session->db->quickScalar("select revisionDate from Survey_response where Survey_responseId = ?", [ $responseId ]);
+    
+    my $out = $self->processTemplate( { revision => $revision }, $self->get('surveyTakeTemplateId') );
+    return $self->processStyle($out);
 }
 
 #-------------------------------------------------------------------
@@ -1161,51 +1643,40 @@ sub www_submitQuestions {
 
     my $responses = $self->session->form->paramsHashRef();
     delete $responses->{func};
+    
+    return $self->submitQuestions($responses);
+}
 
-    my @goodResponses = keys %{$responses};    #load everything.
+#-------------------------------------------------------------------
 
-    my $termInfo = $self->recordResponses( $responses );
+=head2 submitQuestions
 
-    if ( $termInfo->[0] ) {
-        $self->session->log->debug('Terminal, surveyEnd');
-        return $self->surveyEnd( $termInfo->[1] );
+Handles questions submitted by the survey taker, adding them to their response.
+
+=cut
+
+sub submitQuestions {
+    my $self = shift;
+    my $responses = shift;
+    
+    my $result = $self->recordResponses( $responses );
+    
+    # check for special actions
+    if ($result && ref $result eq 'HASH') {
+        if ( my $url = $result->{terminal} ) {
+            $self->session->log->debug('Terminal, surveyEnd');
+            return $self->surveyEnd( { exitUrl => $url } );
+        } elsif ( exists $result->{exitUrl} ) {
+            $self->session->log->debug('exitUrl triggered, surveyEnd');
+            return $self->surveyEnd( { exitUrl => $result->{exitUrl} });
+        } elsif ( my $restart = $result->{restart} ) {
+            $self->session->log->debug('restart triggered');
+            return $self->surveyEnd( { restart => $restart } );
+        }
     }
 
     return $self->www_loadQuestions();
-
-#    my $files = 0;
-#
-#        for my $id(@$orderOf){
-#    if a file upload, write to disk
-#            my $path;
-#            if($id->{'questionType'} eq 'File Upload'){
-#                $files = 1;
-#                my $storage = WebGUI::Storage->create($self->session);
-#                my $filename = $storage->addFileFromFormPost( $id->{'Survey_answerId'} );
-#                $path = $storage->getPath($filename);
-#            }
-#    $self->session->errorHandler->error("Inserting a response ".$id->{'Survey_answerId'}." $responseId, $path, ".$$responses{$id->{'Survey_answerId'}});
-#            $self->session->db->write("insert into Survey_questionResponse
-#                select ?, Survey_sectionId, Survey_questionId, Survey_answerId, ?, ?, ?, now(), ?, ? from Survey_answer where Survey_answerId = ?",
-#                [$self->getId(), $responseId, $$responses{ $id->{'Survey_answerId'} }, '', $path, ++$lastOrder, $id->{'Survey_answerId'}]);
-#        }
-#    if ($files) {
-#        ##special case, need to check for more questions in section, if not, more current up one
-#        my $lastA      = $self->getLastAnswerInfo($responseId);
-#        my $questionId = $self->getNextQuestionId( $lastA->{'Survey_questionId'} );
-#        if ( !$questionId ) {
-#            my $currentSection = $self->getCurrentSection($responseId);
-#            $currentSection = $self->getNextSection($currentSection);
-#            if ($currentSection) {
-#                $self->setCurrentSection( $responseId, $currentSection );
-#            }
-#        }
-#        return;
-#    }
-#    return $self->www_loadQuestions($responseId);
-
 }
-
 
 #-------------------------------------------------------------------
 
@@ -1256,7 +1727,42 @@ sub getSummary {
     my $out = $self->processTemplate( $summary, $self->get('surveySummaryTemplateId') );
 
     return ($summary,$out);
-#    return $self->session->style->process( $out, $self->get('styleTemplateId') );
+}
+
+#-------------------------------------------------------------------
+
+=head2 www_showFeedback
+
+Displays feedback on demand for a given responseId
+
+=cut
+
+sub www_showFeedback {
+    my $self            = shift;
+    
+    my $responseId = $self->session->form->param('responseId');
+    
+    # Only continue if we were given a responseId
+    return if !$responseId;
+    
+    my $responseUserId 
+        = $self->session->db->quickScalar('select userId from Survey_response where Survey_responseId = ?', [ $responseId ]);
+    
+    # Only continue if responseId gave us a legit userId
+    return if !$responseUserId;
+    
+    my $responseUser = WebGUI::User->new($self->session, $responseUserId);
+    return if !$responseUser;
+    
+    # Only continue if current user is allowed to view this response
+    unless ( $self->session->user->userId eq $responseUserId || $self->session->user->isInGroup( $self->get('groupToViewReports') ) ) {
+        $self->session->log->warn("User is not allowed to view responseId: $responseId, which belongs to user: $responseUserId");
+        return $self->session->privilege->insufficient();
+    }
+    
+    my $rd = $self->getResponseDetails( { responseId => $responseId } ) || {};
+    my $out = $rd->{templateText};
+    return $self->session->style->process( $out, $self->get('styleTemplateId') );
 }
 
 #-------------------------------------------------------------------
@@ -1270,7 +1776,6 @@ Determines which questions to display to the survey taker next, loads and return
 sub www_loadQuestions {
     my $self            = shift;
     my $wasRestarted    = shift;
-    
     if ( !$self->canTakeSurvey() ) {
         $self->session->log->debug('canTakeSurvey false, surveyEnd');
         return $self->surveyEnd();
@@ -1283,7 +1788,7 @@ sub www_loadQuestions {
     }
     if ( $self->responseJSON->hasTimedOut( $self->get('timeLimit') ) ) {
         $self->session->log->debug('Response hasTimedOut, surveyEnd');
-        return $self->surveyEnd( undef, 2 );
+        return $self->surveyEnd( { timeout => 1 } );
     }
 
     if ( $self->responseJSON->surveyEnd() ) {
@@ -1292,6 +1797,7 @@ sub www_loadQuestions {
             if(! $self->session->form->param('shownsummary')){
                 my ($summary,$html) = $self->getSummary();
                 my $json = to_json( { type => 'summary', summary => $summary, html => $html });
+                $self->session->http->setMimeType('application/json');
                 return $json;
             }
         }
@@ -1303,7 +1809,6 @@ sub www_loadQuestions {
     
     my $section = $self->responseJSON->nextResponseSection();
 
-    #return $self->prepareShowSurveyTemplate($section,$questions);
     $section->{id}              = $self->responseJSON->nextResponseSectionIndex();
     $section->{wasRestarted}    = $wasRestarted;
 
@@ -1314,41 +1819,71 @@ sub www_loadQuestions {
 
 #-------------------------------------------------------------------
 
-=head2 surveyEnd ( [ $url ], [ $completeCode ]  )
+=head2 surveyEnd ( [ $options ]  )
 
-Marks the survey completed with either 1 or the $completeCode and then sends the url to the site home or if defined, $url.
+Marks the survey response as completed and carries out special actions such as restarting or exiting to an exitUrl
 
-=head3 $url
+=head3 $options
 
-An optional url to send the user to upon survey completion.
+The following options are supported
 
-=head3 $completeCode
+=over 3
 
-An optional code (defaults to 1) to say how the user completed the survey.
+=item timeout
 
-1 is normal completion.
-2 is timed out.
+Indicates that the survey has timed out. The doAfterTimeLimit setting controls whether the 
+survey restarts or exits to the exitUrl.
+
+=item restart
+
+The survey should be restarted
+
+=item exitUrl
+
+Exit to the supplied url, or if no url is provided exit to the survey's exitUrl.
+
+=back
 
 =cut
 
 sub surveyEnd {
-    my $self         = shift;
-    my $url          = shift;
-    my $completeCode = shift;
-
-    $completeCode = defined $completeCode ? $completeCode : 1;
-
-    if ( my $responseId = $self->responseId ) {
+    my $self   = shift;
+    my %opts = validate(@_, { timeout => 0, restart => 0, exitUrl => 0 });
+    
+    # If an in-progress response exists, mark it as complete
+    if ( my $responseId = $self->responseId( { noCreate => 1 } ) ) {
+        # Decide if we should flag any special actions such as restart or timeout
+        my $restart = $opts{restart};
+        my $timeoutRestart = $opts{timeout} && $self->get('doAfterTimeLimit') eq 'restartSurvey';
+        my $timeout = $opts{timeout};
+        
+        # First thing to do is to end the current response (and flag why it happened)
+        my $completeCode
+            = $timeoutRestart ? 4
+            : $timeout        ? 3
+            : $restart        ? 2
+            :                   1
+            ;
+        $self->session->log->debug("Completing survey response $responseId with completeCode: $completeCode");
+            
         $self->session->db->setRow(
             'Survey_response',
             'Survey_responseId', {
                 Survey_responseId => $responseId,
-                endDate           => scalar time,         #WebGUI::DateTime->now->toDatabase,
-                isComplete        => $completeCode
+                endDate           => scalar time,
+                isComplete        => $completeCode,
             }
         );
         
-         # Trigger workflow
+        # When restarting, we just need to uncache everything response-related
+        if ( $restart || $timeoutRestart ) {
+            $self->session->log->debug("Detaching from response $responseId as part of restart");
+            delete $self->{_responseJSON};
+            delete $self->{responseId};
+            return $self->www_loadQuestions(1);
+        }
+        
+         # Trigger workflow for everything else
         if ( my $workflowId = $self->get('onSurveyEndWorkflowId') ) {
             $self->session->log->debug("Triggering onSurveyEndWorkflowId workflow: $workflowId");
             WebGUI::Workflow::Instance->create(
@@ -1360,26 +1895,16 @@ sub surveyEnd {
                 }
             )->start;
         }
-    } 
-    if ($self->get('doAfterTimeLimit') eq 'restartSurvey' && $completeCode == 2){
-        $self->responseJSON->startTime(scalar time);
-        undef $self->{_responseJSON};
-        undef $self->{responseId};
-        return $self->www_loadQuestions('1');
-    } else {
-        if ( $url !~ /\w/ ) { $url = 0; }
-        if ( $url eq 'undefined' ) { $url = 0; }
-        if ( !$url ) {
-            $url = $self->get('exitURL');
-            if ( !$url ) {
-                $url = q{/};
-            }
-        }
     }
-    $url = $self->session->url->gateway($url) if($url !~ /^http:/i);
-    #$self->session->http->setRedirect($url);
-    #$self->session->http->setMimeType('application/json');
-    my $json = to_json( { type => 'forward', url => $url } );
+
+    # If we get this far, it's time to forward users to an exitUrl
+    my $exitUrl = $opts{exitUrl};
+    undef $exitUrl if $exitUrl !~ /\w/;
+    undef $exitUrl if $exitUrl eq 'undefined';
+    $exitUrl = $exitUrl || $self->get('exitURL') || $self->getUrl || q{/};
+    $exitUrl = $self->session->url->gateway($exitUrl) if($exitUrl !~ /^https?:/i);
+    my $json = to_json( { type => 'forward', url => $exitUrl } );
+    $self->session->http->setMimeType('application/json');
     return $json;
 }
 
@@ -1398,6 +1923,7 @@ sub prepareShowSurveyTemplate {
     my %slider      = ( 'Slider', 1, 'Dual Slider - Range', 1, 'Multi Slider - Allocate', 1 );
     my %dateType    = ( 'Date',        1, 'Date Range', 1 );
     my %dateShort   = ( 'Year Month', 1 );
+    my %country     = ( 'Country', 1 );
     my %fileUpload  = ( 'File Upload', 1 );
     my %hidden      = ( 'Hidden',      1 );
 
@@ -1435,6 +1961,13 @@ sub prepareShowSurveyTemplate {
                             ];
             }
         }
+        elsif ( $country{ $q->{questionType} } ) {
+            $q->{country} = 1;
+            my @countries = map +{ 'country' => $_ }, WebGUI::Form::Country::getCountries();
+            foreach my $a(@{$q->{answers}}){
+                $a->{countries} = [ {'country' => ''}, @countries ];
+            }
+        }
         elsif ( $slider{ $q->{questionType} } ) {
             $q->{slider} = 1;
             if ( $q->{questionType} eq 'Dual Slider - Range' ) {
@@ -1467,31 +2000,6 @@ sub prepareShowSurveyTemplate {
     $self->session->http->setMimeType('application/json');
     return to_json( { type => 'displayquestions', section => $section, questions => $questions, html => $out } );
 }
-
-##-------------------------------------------------------------------
-#
-#=head2 loadBothJSON($rId)
-#
-#Loads both the Survey and the appropriate response objects from JSON.
-#
-#=head3 $rId
-#
-#The reponse id to load.
-#
-#=cut
-#
-#sub loadBothJSON {
-#    my $self = shift;
-#    my $rId  = shift;
-##    if ( defined $self->surveyJSON and defined $self->responseJSON ) { return; }
-#    my $ref = $self->session->db->buildArrayRefOfHashRefs( "
-#        select s.surveyJSON,r.responseJSON 
-#        from Survey s, Survey_response r 
-#        where s.assetId = ? and r.Survey_responseId = ?",
-#        [ $self->getId, $rId ] );
-#    $self->surveyJSON( $ref->[0]->{surveyJSON} );
-#    $self->responseJSON( $ref->[0]->{responseJSON}, $rId );
-#}
 
 #-------------------------------------------------------------------
 
@@ -1533,33 +2041,9 @@ sub persistResponseJSON {
 
     # Persist it to the db
     $self->session->db->write( 'update Survey_response set responseJSON = ? where Survey_responseId = ?',
-        [ $frozen, $self->responseId ] );
+        [ $frozen, $self->responseId( { ignoreRevisionDate => 1 } ) ] );
 
     return;
-}
-
-#-------------------------------------------------------------------
-
-=head2 responseIdCookies
-
-Mutator for the responseIdCookies that determines whether cookies are used as
-part of the L<"responseId"> lookup process.
-
-Useful for disabling cookie operations during tests, since WebGUI::Test::getPage
-currently does not support cookies.
-
-=cut
-
-sub responseIdCookies {
-    my $self = shift;
-    my ($x) = validate_pos(@_, {type => SCALAR, optional => 1});
-    
-    if (defined $x) {
-        $self->{_responseIdCookies} = $x;
-    }
-
-    # Defaults to true..
-    return defined $self->{_responseIdCookies} ? $self->{_responseIdCookies} : 1;
 }
 
 #-------------------------------------------------------------------
@@ -1570,101 +2054,148 @@ Accessor for the responseId property, which is the unique identifier for a singl
 L<WebGUI::Asset::Wobject::Survey::ResponseJSON> instance. See also L<"responseJSON">.
 
 The responseId of the current user is returned, or created if one does not already exist.
-If the user is anonymous, the IP is used. Or an emailed or linked code can be used.
 
-=head3 userId (optional)
+=head3 options
 
-If specified, this user is used rather than the current user 
+The following options are supported:
+
+=head4 userId (optional)
+
+If specified, this user is used rather than the current user
+
+=head4 isComplete
+
+A value of isComplete to filter against (defaults to isComplete = 0)
+
+=head4 noCreate
+
+If a responseId does not already exist, do not create one (default is to create an new responseId)
+
+=head4 ignoreRevisionDate
+
+Ignore the fact that the revisionDate bound to the retrieved response does not match the revisionDate for this Survey instance.
 
 =cut
 
 sub responseId {
-    my $self = shift;
-    my ($userId) = validate_pos(@_, {type => SCALAR, optional => 1});
-    
-    my $user = WebGUI::User->new($self->session, $userId);
+    my $self       = shift;
+    my %opts       = validate( @_, { userId => 0, isComplete => 0, noCreate => 0, ignoreRevisionDate => 0 } );
+    my $userId     = $opts{userId} || $self->session->user->userId;
+    my $isComplete = $opts{isComplete};
+    my $noCreate   = $opts{noCreate};
+    my $ignoreRevisionDate = $opts{ignoreRevisionDate};
 
-    if (!defined $self->{responseId}) {
+    my $user = WebGUI::User->new( $self->session, $userId );
+    my $ip = $self->session->env->getIp;
+
+    my $responseId = $self->{responseId};
+    return $responseId if $responseId;
+
+    # If a cached responseId doesn't exist, get the current in-progress response from the db
+    # By default, get current response (e.g. isComplete = 0)
+    my $isCompleteClause = defined $isComplete ? "isComplete = $isComplete" : 'isComplete = 0';
     
-        my $ip = $self->session->env->getIp;
-        my $id = $userId || $self->session->user->userId;
-        my $anonId = $self->session->form->process('userid');
-        if ($self->responseIdCookies) {
-            $anonId ||= $self->session->http->getCookies->{Survey2AnonId}; ## no critic
-        }
-        $anonId ||= undef;
+    if (!$responseId) {
+        ($responseId, my $revisionDate) = $self->session->db->quickArray(
+            "select Survey_responseId, revisionDate from Survey_response where userId = ? and assetId = ? and $isCompleteClause order by endDate desc limit 1",
+            [ $userId, $self->getId ]
+        );
         
-        if ($self->responseIdCookies) {
-            $anonId && $self->session->http->setCookie( Survey2AnonId => $anonId );
+        if (!$ignoreRevisionDate && $responseId && $revisionDate != $self->get('revisionDate')) {
+            $self->session->log->warn("Revision Date $revisionDate for retrieved responseId $responseId does not match instantiated object " 
+            . $self->getId . " revision date " . $self->get('revisionDate') . ". Refusing to return response");
+            return;
         }
-    
-        my ($responseId, $string);
+     }   
 
-        # if there is an anonid or id is for a WG user
-        if ( $anonId or $id != 1 ) {
-            $string = 'userId';
-            if ($anonId) {
-                $string = 'anonId';
-                $id     = $anonId;
-            }
-            $responseId
-                = $self->session->db->quickScalar(
-                "select Survey_responseId from Survey_response where $string = ? and assetId = ? and isComplete = 0",
-                [ $id, $self->getId() ] );
-    
-        }
-        elsif ( $id == 1 ) {
-            $responseId = $self->session->db->quickScalar(
-                'select Survey_responseId from Survey_response where userId = ? and ipAddress = ? and assetId = ? and isComplete = 0',
-                [ $id, $ip, $self->getId() ]
-            );
-        }
-    
-        if ( !$responseId ) {
-            my $maxResponsesPerUser = $self->get('maxResponsesPerUser');
-            my $haveTaken;
-    
-            if ( $id == 1 ) {
-                $haveTaken
-                    = $self->session->db->quickScalar(
-                    'select count(*) from Survey_response where userId = ? and ipAddress = ? and assetId = ?',
-                    [ $id, $ip, $self->getId() ] );
-            }
-            else {
-                $haveTaken
-                    = $self->session->db->quickScalar(
-                    "select count(*) from Survey_response where $string = ? and assetId = ?",
-                    [ $id, $self->getId() ] );
-            }
-    
-            if ( $maxResponsesPerUser == 0 || $haveTaken < $maxResponsesPerUser ) {
-                $responseId = $self->session->db->setRow(
-                    'Survey_response',
-                    'Survey_responseId', {
-                        Survey_responseId => 'new',
-                        userId            => $id,
-                        ipAddress         => $ip,
-                        username          => $user ? $user->username : $self->session->user->username,
-                        startDate         => scalar time,                      #WebGUI::DateTime->now->toDatabase,
-                        endDate           => 0,                                #WebGUI::DateTime->now->toDatabase,
-                        assetId           => $self->getId(),
-                        anonId            => $anonId
-                    }
-                );
-
-                # Store the newly created responseId
-                $self->{responseId} = $responseId;
-                
-                # Manually persist ResponseJSON since we have changed $self->responseId
-                $self->persistResponseJSON();
-            }
-            else {
-                $self->session->log->debug("haveTaken ($haveTaken) >= maxResponsesPerUser ($maxResponsesPerUser)");
-            }
-        }
-        $self->{responseId} = $responseId;
+    if ( !$responseId && $noCreate ) {
+        $self->session->log->debug("ResponseId doesn't exist, but we were asked not to create a new one");
+        return;
     }
+    
+    # If no current in-progress response exists, create one (as long as we're allowed to)
+    # N.B. Response is bound to current Survey revisionDate
+    if ( !$responseId ) {
+        my $maxResponsesPerUser = $self->get('maxResponsesPerUser');
+        my $takenCount = $self->takenCount( { userId => $userId } );
+        if ( $maxResponsesPerUser == 0 || $takenCount < $maxResponsesPerUser ) {
+            # Create a new response
+            $responseId = $self->session->db->setRow(
+                'Survey_response',
+                'Survey_responseId', {
+                    Survey_responseId => 'new',
+                    userId            => $userId,
+                    ipAddress         => $ip,
+                    username          => $user->username,
+                    startDate         => scalar time,
+                    endDate           => 0,
+                    assetId           => $self->getId,
+                    revisionDate      => $self->get('revisionDate'),
+                    anonId            => undef,
+                }
+            );
+
+            # Store the newly created responseId
+            $self->{responseId} = $responseId;
+            
+            $self->session->log->debug("Created new Survey response: $responseId for user: $userId for Survey: " . $self->getId);
+            
+            # Manually persist ResponseJSON since we have changed $self->responseId
+            $self->persistResponseJSON();
+        }
+        else {
+            $self->session->log->debug("Refusing to create new response, takenCount ($takenCount) >= maxResponsesPerUser ($maxResponsesPerUser)");
+        }
+    }
+    $self->{responseId} = $responseId;
+    
     return $self->{responseId};
+}
+
+=head2 takenCount ( $options )
+
+Counts the number of existing responses
+N.B. only counts responses with completeCode of 1 
+(others codes indicate abnormal completion such as restart
+and thus should not count towards tally)
+
+=head3 options
+
+The following options are supported
+
+=head4 userId (optional)
+
+The userId to count responses for. Defaults to the current user
+
+=head4 ipAddress (optional)
+
+An IP address to filter responses by
+
+=head4 isComplete  (optional)
+
+A complete code to use to filter responses by (optional, defaults to 1)
+
+=cut
+
+sub takenCount {
+    my $self = shift;
+    my %opts = validate(@_, { userId => 0, ipAddress => 0, isComplete => 0 });
+    my $isComplete = defined $opts{isComplete} ? $opts{isComplete} : 1;
+    
+    $opts{userId} ||= $self->session->user->userId;
+    
+    my $sql = 'select count(*) from Survey_response where';
+    $sql .= ' assetId = ' . $self->session->db->quote($self->getId);
+    $sql .= ' and isComplete = ' . $self->session->db->quote($isComplete);
+    for my $o qw(userId ipAddress) {
+        if (my $o_value = $opts{$o}) {
+            $sql .= " and $o = " . $self->session->db->quote($o_value);
+        }
+    }
+    $self->session->log->debug($sql);
+    
+    my $count = $self->session->db->quickScalar($sql);
+    return $count;
 }
 
 #-------------------------------------------------------------------
@@ -1679,8 +2210,9 @@ sub canTakeSurvey {
     my $self = shift;
 
     return $self->{canTake} if ( defined $self->{canTake} );
-
-    if ( !$self->session->user->isInGroup( $self->get('groupToTakeSurvey') ) ) {
+    
+    # Immediately reject if not in groupToTakeSurvey or groupToEditSurvey
+    if ( !$self->session->user->isInGroup( $self->get('groupToTakeSurvey') ) && !$self->session->user->isInGroup( $self->get('groupToEditSurvey') ) ) {
         return 0;
     }
 
@@ -1690,16 +2222,10 @@ sub canTakeSurvey {
     my $takenCount          = 0;
 
     if ( $userId == 1 ) {
-        $takenCount = $self->session->db->quickScalar(
-            'select count(*) from Survey_response where userId = ? and ipAddress = ? '
-            . 'and assetId = ? and isComplete > ?', [ $userId, $ip, $self->getId(), 0 ]
-        );
+        $takenCount = $self->takenCount( { ipAddress => $ip });
     }
     else {
-        $takenCount
-            = $self->session->db->quickScalar(
-            'select count(*) from Survey_response where userId = ? and assetId = ? and isComplete > ?',
-            [ $userId, $self->getId(), 0 ] );
+        $takenCount = $self->takenCount;
     }
 
     # A maxResponsesPerUser value of 0 implies unlimited
@@ -1710,7 +2236,6 @@ sub canTakeSurvey {
         $self->{canTake} = 1;
     }
     return $self->{canTake};
-
 }
 
 #-------------------------------------------------------------------
@@ -1758,7 +2283,7 @@ sub www_viewGradeBook {
     $paginator->appendTemplateVars($var);
 
     my $out = $self->processTemplate( $var, $self->get('gradebookTemplateId') );
-    return $self->session->style->process( $out, $self->get('styleTemplateId') );
+    return $self->processStyle($out);
 }
 
 #-------------------------------------------------------------------
@@ -1848,7 +2373,7 @@ sub www_viewStatisticalOverview {
     $paginator->appendTemplateVars($var);
 
     my $out = $self->processTemplate( $var, $self->get('overviewTemplateId') );
-    return $self->session->style->process( $out, $self->get('styleTemplateId') );
+    return $self->processStyle($out);
 }
 
 #-------------------------------------------------------------------
@@ -1900,6 +2425,87 @@ sub www_exportTransposedResults {
         . ' order by r.userId, r.Survey_responseId, t.order',
         [ $self->getId() ] );
     return $self->export( $filename, $content );
+}
+
+
+#-------------------------------------------------------------------
+
+=head2 www_exportStructure 
+
+Exports the surveyJSON as either HTML or a downloadable CSV file, based on the
+C<format> form variable.
+
+=cut
+
+sub www_exportStructure {
+    my $self = shift;
+
+    return $self->session->privilege->insufficient()
+        unless ( $self->session->user->isInGroup( $self->get('groupToEditSurvey') ) );
+    
+    if ($self->session->form->param('format') eq 'html') {
+        my $output = <<END_HTML;
+<p>N.B. Items are formatted as:
+    <ul>
+        <li>Section Number: (<b>variable</b>) &ldquo;Section Title&rdquo;</li>
+        <li>Question Number: (<b>variable</b>) &ldquo;Question Title&rdquo;</li>
+        <ul><li>Answer Number: (<b>Recorded Answer,Answer Score</b>) &ldquo;Answer Text&rdquo;</li></ul>
+    </ul>
+</p>
+<div style="border: 1px dashed; margin: 10px; padding: 10px;">
+END_HTML
+        my $sNum = 1;
+        for my $s (@{$self->surveyJSON->sections}) {
+            $output .= "S$sNum: (<b>$s->{variable}</b>) &ldquo;$s->{title}&rdquo;";
+            $output .= '<ul>';
+            my $qNum = 0;
+            for my $q (@{$s->{questions}}) {
+                $qNum++;
+                $output .= '<li>';
+                $output .= "Q$qNum: (<b>$q->{variable}</b>) &ldquo;$q->{text}&rdquo;";
+                $output .= '<ul>';
+                my $aNum = 0;
+                for my $a (@{$q->{answers}}) {
+                    $aNum++;
+                    $output .= '<li>';
+                    $output .= "A$aNum: (<b>$a->{recordedAnswer},$a->{value}</b>) &ldquo;$a->{text}&rdquo;";
+                    $output .= '</li>';
+                }
+                $output .= '</ul>';
+                $output .= '</li>';
+            }
+            $output .= '</ul>';
+        }
+        $output .= '</div>';
+        
+        return $self->session->style->userStyle($output);
+    } else {
+        my @rows = ([qw( numbering type variable recordedValue score text goto gotoExpression)]);
+        my $sNum = 0;
+        for my $s (@{$self->surveyJSON->sections}) {
+            $sNum++;
+            push @rows, ["S$sNum", 'Section', $s->{variable}, '', '', $s->{text}, $s->{goto}, $s->{gotoExpression}];
+            my $qNum = 0;
+            for my $q (@{$s->{questions}}) {
+                $qNum++;
+                push @rows, ["S$sNum-Q$qNum", 'Question', $q->{variable}, '', '', $q->{text}, $q->{goto}, $q->{gotoExpression}];
+                my $aNum = 0;
+                for my $a (@{$q->{answers}}) {
+                    $aNum++;
+                    push @rows, ["S$sNum-Q$qNum-A$aNum", 'Answer', '', $a->{recordedAnswer}, $a->{value}, $a->{text}, $a->{goto}, $a->{gotoExpression}];
+                }
+            }
+        }
+        
+        my $csv = Text::CSV_XS->new( { binary => 1 } );
+        my @lines = map {$csv->combine(@$_); $csv->string} @rows;
+        my $output = join "\n", @lines;
+        
+        my $filename = $self->session->url->escape( $self->get("title") . "_structure.csv" );
+        $self->session->http->setFilename($filename,"text/csv");
+        
+        return $output;
+    }
 }
 
 #-------------------------------------------------------------------
@@ -1974,7 +2580,7 @@ sub loadTempReportTable {
                     'insert into Survey_tempReport VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [
                         $self->getId(),    $ref->{Survey_responseId}, $count++,           $q->{section},
                         $q->{sectionName}, $q->{question},            $q->{questionName}, $q->{questionComment},
-                        $a->{id},          $a->{value},               $a->{comment},      $a->{time},
+                        $a->{id},          $a->{value},               $a->{verbatim},      $a->{time},
                         $a->{isCorrect},   $a->{value},               undef
                     ]
                 );
@@ -2014,7 +2620,7 @@ sub www_editDefaultQuestions{
 
 #-------------------------------------------------------------------
 
-=head2 www_downloadDefaulQuestions
+=head2 www_downloadDefaultQuestionTypes
 
 Sends the user a json file of the default question types, which can be imported to other WebGUI instances.
 
@@ -2026,6 +2632,470 @@ sub www_downloadDefaultQuestionTypes{
         if !$self->session->user->isInGroup( $self->get('groupToViewReports') );
     my $content = to_json($self->surveyJSON->{multipleChoiceTypes});
     return $self->export( "WebGUI-Survey-DefaultQuestionTypes.json", $content );
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#-------------------------------------------------------------------
+
+=head2 www_deleteTest ( )
+
+Deletes a test
+
+=cut
+
+sub www_deleteTest {
+    my $self = shift;
+    my $session = $self->session;
+    
+    return $self->session->privilege->insufficient()
+        unless $self->session->user->isInGroup( $self->get('groupToEditSurvey') );
+        
+    my $test = WebGUI::Asset::Wobject::Survey::Test->new($session, $session->form->get("testId"));
+    if (defined $test) {
+        $test->delete;
+    }
+    return $self->www_editTestSuite;
+}
+
+#------------------------------------------------------------------
+
+=head2 www_demoteTest ( )
+
+Moves a Test down one position
+
+=cut
+
+sub www_demoteTest {
+    my $self = shift;
+    my $session = $self->session;
+    
+    return $self->session->privilege->insufficient()
+        unless $self->session->user->isInGroup( $self->get('groupToEditSurvey') );
+    
+    my $test = WebGUI::Asset::Wobject::Survey::Test->new($session, $session->form->get("testId"));
+    if (defined $test) {
+        $test->demote;
+    }
+    return $self->www_editTestSuite;
+}
+
+#-------------------------------------------------------------------
+
+=head2 www_editTestSuite ( $error )
+
+Configure a set of tests
+
+=head3 $error
+
+Allows another method to pass an error into this method, to display to the user.
+
+=cut
+
+sub www_editTestSuite {
+    my $self = shift;
+    my $error   = shift;
+    my $session = $self->session;
+    
+    return $self->session->privilege->insufficient()
+        unless $self->session->user->isInGroup( $self->get('groupToEditSurvey') );
+        
+    if ($error) {
+        $error = qq|<div class="error">$error</div>\n|;
+    }
+    my $i18n = WebGUI::International->new($session, "Asset_Survey");
+    my $addmenu = '<div style="float: left; width: 200px; font-size: 11px;">';
+    $addmenu .= sprintf '<a href="%s">%s</a>', $session->url->page('func=editTest'), $i18n->get('add a test');
+    $addmenu .= '</div>';
+    
+    my $testsFound = 0;
+    my $tests = '<table class="content"><tr><th></th><th>' . $i18n->get('test name') . '</th></tr><tbody class="tableData">';
+    my $getATest = WebGUI::Asset::Wobject::Survey::Test->getAllIterator($session, { sequenceKeyValue => $self->getId } );
+    my $icon = $session->icon;
+    while (my $test = $getATest->()) {
+        $testsFound++;
+        my $testId     = $test->getId;
+        my $name = $test->get('name');
+        $tests .= '<tr><td>'
+               .  $icon->delete(  'func=deleteTest;testId='.$testId, undef, $i18n->get('confirm delete test'))
+               .  $icon->edit(    'func=editTest;testId='.$testId)
+               .  $icon->moveDown('func=demoteTest;testId='.$testId)
+               .  $icon->moveUp(  'func=promoteTest;testId='.$testId)
+               .  qq{<a href="} . $session->url->page("func=runTest;testId=$testId") . qq{">Run Test</a>}
+               .  '</td><td>'.$name.'</td></tr>';
+    }
+    $tests .= '</tbody></table><div style="clear: both;"></div>';
+    
+    my $out = $error . $addmenu;
+    $out .= $tests if $testsFound;
+    
+    my $ac = $self->getAdminConsole;
+    return $ac->render($out, 'Survey');
+}
+
+
+#-------------------------------------------------------------------
+
+=head2 www_editTest ( )
+
+Displays a form to edit the properties test.
+
+=cut
+
+sub www_editTest {
+    my $self = shift;
+    my $error = shift;
+    my $session = $self->session;
+    
+    return $self->session->privilege->insufficient()
+        unless $self->session->user->isInGroup( $self->get('groupToEditSurvey') );
+    
+    if ($error) {
+        $error = qq|<div class="error">$error</div>\n|;
+    }
+    ##Make a Survey test to use to populate the form.
+    my $testId = $session->form->get('testId'); 
+    my $test;
+    if ($testId) {
+        $test = WebGUI::Asset::Wobject::Survey::Test->new($session, $testId);
+    }
+    else {
+        ##We need a temporary test so that we can call dynamicForm, below
+        $testId = 'new';
+        $test = WebGUI::Asset::Wobject::Survey::Test->create($session, { assetId => $self->getId });
+    }
+
+    ##Build the form
+	my $form = WebGUI::HTMLForm->new($session);
+	$form->hidden( name=>"func",   value=>"editTestSave");
+	$form->hidden( name=>"testId", value=>$testId);
+	$form->hidden( name=>"assetId", value=>$self->getId);
+    $form->dynamicForm([WebGUI::Asset::Wobject::Survey::Test->crud_definition($session)], 'properties', $test);
+	$form->submit;
+	
+    if ($testId eq 'new') {
+        $test->delete;
+    }
+    my $ac = $self->getAdminConsole;
+    my $i18n = WebGUI::International->new($session, 'Asset_Survey');
+    $ac->addSubmenuItem($self->session->url->page("func=editTest;testId=$testId"), $i18n->get('edit test'));
+    $ac->addSubmenuItem($self->session->url->page("func=runTest;testId=$testId"), $i18n->get('run test'));
+	return $ac->render($error.$form->print, $i18n->get('edit test'));
+}
+
+#-------------------------------------------------------------------
+
+=head2 www_editTestSave ( )
+
+Saves the results of www_editTest().
+
+=cut
+
+sub www_editTestSave {
+    my $self = shift;
+    my $session = $self->session;
+    
+    return $self->session->privilege->insufficient()
+        unless $self->session->user->isInGroup( $self->get('groupToEditSurvey') );
+    
+    my $form    = $session->form;
+    
+#    eval {
+#        'fooBarBaz' =~ qr/$regexp/;
+#    };
+#    if ($@) {
+#        my $error = $@;
+#        $error =~ s/at \S+?\.pm line \d+.*$//;
+#        my $i18n = WebGUI::International->new($session, 'Asset_Survey');
+#        $error = join ' ', $i18n->get('Regular Expression Error:'), $error;
+#        return www_editTest($session, $error);
+#    }
+
+    my $testId = $form->get('testId');
+    my $test;
+    if ($testId eq 'new') {
+        $test = WebGUI::Asset::Wobject::Survey::Test->create($session, { assetId => $self->getId });
+    }
+    else {
+        $test = WebGUI::Asset::Wobject::Survey::Test->new($session, $testId);
+    }
+    $test->updateFromFormPost if $test;
+    return $self->www_editTestSuite;
+}
+
+
+#------------------------------------------------------------------
+
+=head2 www_promoteTest ( )
+
+Moves a test up one position
+
+=head3 session
+
+A reference to the current session.
+
+=cut
+
+sub www_promoteTest {
+    my $self = shift;
+    my $session = $self->session;
+    
+    return $self->session->privilege->insufficient()
+        unless $self->session->user->isInGroup( $self->get('groupToEditSurvey') );
+    
+    my $test = WebGUI::Asset::Wobject::Survey::Test->new($session, $session->form->get("testId"));
+    if (defined $test) {
+        $test->promote;
+    }
+	return $self->www_editTestSuite;
+}
+
+#-------------------------------------------------------------------
+
+=head2 www_runTest ( )
+
+Runs a test
+
+=cut
+
+sub www_runTest {
+    my $self = shift;
+    my $session = $self->session;
+    
+    return $self->session->privilege->insufficient()
+        unless $self->session->user->isInGroup( $self->get('groupToEditSurvey') );
+    
+    my $i18n = WebGUI::International->new($session, 'Asset_Survey');
+    my $ac = $self->getAdminConsole;
+    
+    eval { require TAP::Parser };
+    if ($@) {
+        $self->session->log->warn($TAP_PARSER_MISSING);
+        return $ac->render($TAP_PARSER_MISSING, $i18n->get('test results'));
+    }
+    
+    my $testId = $session->form->get("testId");
+    
+    my $test = WebGUI::Asset::Wobject::Survey::Test->new($session, $testId)
+        or return $self->www_editTestSuite('Unable to find test');
+    
+    # Remove any in-progress reponses for current user
+    $self->session->db->write( 'delete from Survey_response where assetId = ? and userId = ? and isComplete = 0',
+        [ $self->getId, $self->session->user->userId() ] );
+    
+    my $result = $test->run or return $self->www_editTestSuite('Unable to run test');
+    
+    my $tap = $result->{tap} or return $self->www_editTestSuite('Unable to determine test result');
+    
+    my $parsed = $self->parseTap($tap) or return $self->www_editTestSuite('Unable to parse test output');
+    
+    $ac->addSubmenuItem($self->session->url->page("func=editTest;testId=$testId"), $i18n->get('edit test'));
+    $ac->addSubmenuItem($self->session->url->page("func=runTest;testId=$testId"), $i18n->get('run test'));
+    return $ac->render($parsed->{templateText}, 'Test Results');
+}
+
+=head2 parseTap
+
+Parses TAP and returns an object containing the TAP::Parser, the template var (containing 
+all interesting TAP::Parser and TAP::Parser::Result properties) and the templated text
+
+=cut
+
+sub parseTap {
+    my ($self, $tap) = @_;
+    
+    eval { require TAP::Parser };
+    if ($@) {
+        $self->session->log->warn($TAP_PARSER_MISSING);
+        return;
+    }
+    my $parser = TAP::Parser->new( { tap => $tap } );
+    
+    # Expose TAP::Parser and TAP::Parser::Result info as template variables
+    my $var = {
+        results => [],
+    };
+    
+    while ( my $result = $parser->next ) {
+        my $rvar = {};
+        for my $key (qw(
+            is_plan is_pragma is_test is_comment is_bailout is_version is_unknown
+            raw
+            type
+            as_string
+            is_ok
+            has_directive
+            has_todo
+            has_skip
+           )) { 
+           $rvar->{$key} = $result->$key; 
+        }
+        push @{$var->{results}}, $rvar;
+    }
+
+    # add summary results
+    for my $key (qw(
+        passed
+        failed
+        actual_passed
+        actual_failed
+        todo
+        todo_passed
+        skipped
+        plan
+        tests_planned
+        tests_run
+        skip_all
+        has_problems
+        exit
+        wait
+        parse_errors
+       )) { 
+       $var->{$key} = $parser->$key; 
+    }
+    my $out = $self->processTemplate($var, $self->get('testResultsTemplateId') || 'S3zpVitAmhy58CAioH359Q');
+    
+    return { 
+        templateText => $out,
+        templateVar => $var,
+        parser => $parser,
+    };
+}
+
+
+#-------------------------------------------------------------------
+
+=head2 www_runTests ( )
+
+Runs all tests
+
+=cut
+
+sub www_runTests {
+    my $self = shift;
+
+    my $session = $self->session;
+    my $i18n = WebGUI::International->new($self->session, "Asset_Survey");
+    my $ac = $self->getAdminConsole;
+    return $self->session->privilege->insufficient()
+        unless $self->session->user->isInGroup( $self->get('groupToEditSurvey') );
+    
+    # Remove any in-progress reponses for current user
+    $self->session->db->write( 'delete from Survey_response where assetId = ? and userId = ? and isComplete = 0',
+        [ $self->getId, $self->session->user->userId() ] );
+        
+    # Manage responses ourselves rather than doing it over and over per-test
+    my $responseId = $self->responseId( { userId => $self->session->user->userId } )
+        or return $self->www_editTestSuite('Unable to start survey response');
+    
+    # Also initSurveyOrder ourselves once, and then preserve, rather than re-loading
+    $self->responseJSON->initSurveyOrder;
+    
+    my $all = WebGUI::Asset::Wobject::Survey::Test->getAllIterator($session, { sequenceKeyValue => $self->getId } );
+    
+    # Expose TAP::Parser::Aggregate info as template variables
+    my $var = {
+        aggregate => 1,
+        results => [],
+    };
+    my $format = $self->session->form->param('format');
+    local $| = 1 if $format eq 'tap';
+
+    
+    my @parsers;
+    eval { require TAP::Parser };
+    if ($@) {
+        $self->session->log->warn($TAP_PARSER_MISSING);
+        return $ac->render($TAP_PARSER_MISSING, $i18n->get('test results'));
+    }
+    eval { require TAP::Parser::Aggregator };
+    if ($@) {
+        $self->session->log->warn($TAP_PARSER_MISSING);
+        return $ac->render($TAP_PARSER_MISSING, $i18n->get('test results'));
+    }
+    my $aggregate = TAP::Parser::Aggregator->new;
+    $aggregate->start;
+    
+    while (my $test = $all->()) {
+        my $result = $test->run( { responseId => $responseId }) 
+            or return $self->www_editTestSuite('Unable to run test: ' . $test->getId);
+        my $tap = $result->{tap} or return $self->www_editTestSuite('Unable to determine test result: ' . $test->getId);
+        my $name = $test->get('name') || "Unnamed";
+        my $parsed = $self->parseTap($tap);
+        push @parsers, { $name => $parsed->{parser} };
+        push @{$var->{results}}, {
+            %{$parsed->{templateVar}},
+            name => $name,
+            testId => $test->getId,
+            text => $parsed->{templateText},
+            };
+        $self->session->output->print("$name\n$tap\n\n") if $format eq 'tap';
+    }
+    $aggregate->stop;
+    
+    $aggregate->add( %$_ ) for @parsers;
+    
+    # add summary results
+    for my $key (qw(
+        elapsed_timestr
+        all_passed
+        get_status
+        failed
+        parse_errors
+        passed
+        skipped
+        todo
+        todo_passed
+        wait
+        exit
+        total
+        has_problems
+        has_errors
+       )) { 
+       $var->{$key} = $aggregate->$key; 
+    }
+    my $out = $self->processTemplate($var, $self->get('testResultsTemplateId') || 'S3zpVitAmhy58CAioH359Q');
+
+    
+    if ($format eq 'tap') {
+        my $summary = <<'END_SUMMARY';
+SUMMARY
+-------
+Passed:  %s
+Failed:  %s
+END_SUMMARY
+        $self->session->output->print(sprintf $summary, scalar $aggregate->passed, scalar $aggregate->failed);
+        return 'chunked';
+    } else {
+        return $ac->render($out, $i18n->get('test results'));
+    }
 }
 
 1;

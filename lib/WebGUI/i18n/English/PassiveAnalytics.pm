@@ -69,9 +69,9 @@ $ = end of url<br />
 + = 1 or more<br />
 ? = 0 or 1<br />
 Meta characters should be backslash-escaped if you want to match them as ordinary text, e.g.<br />
-home\?func=match, or<br />
+home\?func=match<br />
 |,
-		lastUpdated => 0,
+		lastUpdated => 1248191303,
 		context => q||
 	},
 
@@ -106,8 +106,8 @@ home\?func=match, or<br />
 	},
 
 	'User help' => {
-		message => q|The user who will recieve an email when bucket processing is done.|,
-		lastUpdated => 0,
+		message => q|The user who will receive an email when bucket processing is done.|,
+		lastUpdated => 1248191382,
 		context => q||
 	},
 
@@ -175,6 +175,30 @@ home\?func=match, or<br />
 		message => q|Manage Ruleset|,
 		lastUpdated => 0,
 		context => q|Admin console submenu label.  Ruleset is a set of rules.|,
+	},
+
+	'already active' => {
+		message => q|Passive Analytics is already active.  Please do not try to subvert the UI in the future.|,
+		lastUpdated => 0,
+		context => q|Error message|,
+	},
+
+	'workflow deleted' => {
+		message => q|The Passive Analytics workflow has been deleted.  Please contact an Administrator immediately.|,
+		lastUpdated => 0,
+		context => q|Error message|,
+	},
+
+	'currently running' => {
+		message => q|A Passive Analytics analysis is currently running.|,
+		lastUpdated => 0,
+		context => q|Error message|,
+	},
+
+	'error creating workflow' => {
+		message => q|Error creating the workflow instance.|,
+		lastUpdated => 0,
+		context => q|Error message|,
 	},
 
 };

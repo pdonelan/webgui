@@ -2,6 +2,7 @@ YAHOO.namespace('WebGUI.Form');
 YAHOO.WebGUI.Form.DatePicker = {
     init: function() {
         this.time = {};
+        this.codeSelect = false;
         var container = document.createElement('div');
         YAHOO.util.Dom.setStyle(container, 'font-size', '9pt');
         YAHOO.util.Dom.setStyle(container, 'position', 'absolute');
@@ -19,10 +20,12 @@ YAHOO.WebGUI.Form.DatePicker = {
             DATE_RANGE_DELIMITER: '/',
             MDY_YEAR_POSITION: 1,
             MDY_MONTH_POSITION: 2,
-            MDY_DAY_POSITION: 3
+            MDY_DAY_POSITION: 3,
+            NAVIGATOR: true
         };
-        if (window.webguiFirstDayOfWeek) {
-            config.START_WEEKDAY = window.webguiFirstDayOfWeek;
+        var firstDayOfWeek = getWebguiProperty('firstDayOfWeek');
+        if (firstDayOfWeek) {
+            config.START_WEEKDAY = firstDayOfWeek;
         }
         this.calendar = new YAHOO.widget.Calendar(null, cal, config);
         this.calendar.selectEvent.subscribe(this.handleSelect, this, true);
@@ -141,9 +144,11 @@ YAHOO.WebGUI.Form.DatePicker = {
                 this.min = '00';
             if (!this.sec)
                 this.sec = '00';
-            this.hourEl.value = this.hour;
-            this.minuteEl.value = this.min;
-            this.secEl.value = this.sec;
+            if (this.useTime) {
+                this.hourEl.value = this.hour;
+                this.minuteEl.value = this.min;
+                this.secEl.value = this.sec;
+            }
             this.calendar.select(date);
             var selectedDates = this.calendar.getSelectedDates();
             if (selectedDates.length > 0) {

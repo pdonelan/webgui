@@ -29,6 +29,7 @@ use WebGUI::DateTime;
 use WebGUI::User;
 use WebGUI::Group;
 use WebGUI::AssetCollateral::DataForm::Entry;
+use WebGUI::Form::SelectRichEditor;
 use JSON ();
 
 our @ISA = qw(WebGUI::Asset::Wobject);
@@ -72,6 +73,9 @@ sub _createForm {
     elsif ( $class->isa('WebGUI::Form::List') ) {
         delete $param{size};
     }
+    elsif ( $type eq 'HTMLArea' && $data->{htmlAreaRichEditor} ne '**Use_Default_Editor**') {
+        $param{richEditId} = $data->{htmlAreaRichEditor}  ;
+    }
     return $class->new($self->session, \%param);
 }
 
@@ -111,21 +115,57 @@ sub _createTabInit {
 
 #-------------------------------------------------------------------
 
+=head2 defaultViewForm 
+
+Returns true if defaultView is set to 0.
+
+=cut
+
 sub defaultViewForm {
     my $self = shift;
     return ($self->get("defaultView") == 0);
 }
+
+#-------------------------------------------------------------------
+
+=head2 defaultView 
+
+Returns the kind of default view.  If defaultView == 0, it returns 'form'.  Otherwise,
+it returns 'list'.
+
+=cut
 
 sub defaultView {
     my $self = shift;
     return ($self->get("defaultView") == 0 ? 'form' : 'list');
 }
 
+#-------------------------------------------------------------------
+
+=head2 currentView 
+
+By priority, returns that the current view is.  First, it checks in internally
+cached mode, then it checks for a C<mode> form parameter, then it resorts to defaultView.
+
+=cut
+
 sub currentView {
     my $self = shift;
     my $view = $self->{_mode} || $self->session->form->param('mode') || $self->defaultView;
     return $view;
 }
+
+#-------------------------------------------------------------------
+
+=head2 deleteField ($fieldName)
+
+Removes a field from the DataForm.
+
+=head3 $fieldName
+
+The name of a field to delete.
+
+=cut
 
 sub deleteField {
     my $self = shift;
@@ -141,6 +181,18 @@ sub deleteField {
     $self->_saveFieldConfig;
     return 1;
 }
+
+#-------------------------------------------------------------------
+
+=head2 deleteTab ( $tabId )
+
+Deletes a tab from the tabs in this DataForm.
+
+=head3 $tabId
+
+The GUID of a tab to delete.
+
+=cut
 
 sub deleteTab {
     my $self = shift;
@@ -160,6 +212,15 @@ sub deleteTab {
     return 1;
 }
 
+#-------------------------------------------------------------------
+
+=head2 getContentLastModified 
+
+Extends the base method to modify caching.  If the currentView is in list mode, or
+an entry is being viewed, bypass caching altogether.
+
+=cut
+
 sub getContentLastModified {
     my $self = shift;
     if ($self->currentView eq 'list' || $self->session->form->process('entryId')) {
@@ -167,6 +228,22 @@ sub getContentLastModified {
     }
     return $self->SUPER::getContentLastModified;
 }
+
+#-------------------------------------------------------------------
+
+=head2 renameField ($oldName, $newName)
+
+Renames a field by name
+
+=head3 $oldName
+
+The old name of the field.
+
+=head3 $newName
+
+The new name of the field.
+
+=cut
 
 sub renameField {
     my $self = shift;
@@ -184,6 +261,8 @@ sub renameField {
     return $self->getFieldConfig->{$newName}{name} = $newName;
 }
 
+#-------------------------------------------------------------------
+
 sub _saveFieldConfig {
     my $self = shift;
     my @config = map {
@@ -192,6 +271,8 @@ sub _saveFieldConfig {
     my $data = JSON::to_json(\@config);
     $self->update({fieldConfiguration => $data});
 }
+
+#-------------------------------------------------------------------
 
 sub _saveTabConfig {
     my $self = shift;
@@ -220,6 +301,12 @@ sub definition {
     my $definition = shift;
     my $i18n = WebGUI::International->new($session,"Asset_DataForm");
     my %properties;
+    
+    # populate hash of Rich Editors and add an entry to the list to use the default
+    my $selectRichEditor = WebGUI::Form::SelectRichEditor->new($session,{}) ;
+    my $richEditorOptions  = $selectRichEditor->getOptions() ;
+    $richEditorOptions->{'**Use_Default_Editor**'} = $i18n->get("Use Default Rich Editor");
+    
     tie %properties, 'Tie::IxHash';
     %properties = (
         templateId => {
@@ -231,6 +318,14 @@ sub definition {
             hoverHelp       => $i18n->get('82 description'),
             afterEdit       => 'func=edit',
         },
+        htmlAreaRichEditor =>{
+            fieldType=>"selectBox",
+            defaultValue=>0,
+            options=>$richEditorOptions,
+            tab=>'display',
+            label=>$i18n->get('htmlAreaRichEditor'),
+            hoverHelp=>$i18n->get('htmlAreaRichEditor description'),
+	},
         emailTemplateId => {
             fieldType       => "template",
             defaultValue    => 'PBtmpl0000000000000085',
@@ -384,6 +479,8 @@ sub definition {
     return $class->SUPER::definition($session, $definition);
 }
 
+#-------------------------------------------------------------------
+
 sub _cacheFieldConfig {
     my $self = shift;
     if (!$self->{_fieldConfig}) {
@@ -407,6 +504,8 @@ sub _cacheFieldConfig {
     return 1;
 }
 
+#-------------------------------------------------------------------
+
 sub _cacheTabConfig {
     my $self = shift;
     if (!$self->{_tabConfig}) {
@@ -429,6 +528,19 @@ sub _cacheTabConfig {
     return 1;
 }
 
+#-------------------------------------------------------------------
+
+=head2 getFieldConfig ($field)
+
+Returns the configuration for 1 field.
+
+=head3 $field
+
+The GUID of the field to return.  If left blank, it will return configurations for
+all fields in this DataForm.
+
+=cut
+
 sub getFieldConfig {
     my $self = shift;
     my $field = shift;
@@ -441,11 +553,32 @@ sub getFieldConfig {
     }
 }
 
+#-------------------------------------------------------------------
+
+=head2 getFieldOrder 
+
+Returns the internally cached field order, an array reference.
+
+=cut
+
 sub getFieldOrder {
     my $self = shift;
     $self->_cacheFieldConfig;
     return $self->{_fieldOrder};
 }
+
+#-------------------------------------------------------------------
+
+=head2 getTabConfig ( $tabId )
+
+Returns the configuration for 1 tab.
+
+=head3 $tabId
+
+The GUID of the tab to return a configuration for.  If no tabId is passed, then
+it returns the configurations for all of them.
+
+=cut
 
 sub getTabConfig {
     my $self = shift;
@@ -459,6 +592,14 @@ sub getTabConfig {
     }
 }
 
+#-------------------------------------------------------------------
+
+=head2 getTabOrder 
+
+Returns the order of the tabs, an array reference.
+
+=cut
+
 sub getTabOrder {
     my $self = shift;
     $self->_cacheTabConfig;
@@ -467,6 +608,13 @@ sub getTabOrder {
 
 
 #-------------------------------------------------------------------
+
+=head2 deleteAttachedFiles 
+
+Deletes all files attached to this DataForm, or to any fields or entries in the DataForm.
+
+=cut
+
 sub deleteAttachedFiles {
     my $self = shift;
     my %params = @_;
@@ -505,6 +653,16 @@ sub deleteAttachedFiles {
 }
 
 #-------------------------------------------------------------------
+
+=head2 getAttachedFiles ( $entryData )
+
+Return an array reference to every file in every storage location in every field for
+one set of entryData.
+
+=head3 $entryData
+
+=cut
+
 sub getAttachedFiles {
     my $self = shift;
     my $entryData = shift;
@@ -523,6 +681,17 @@ sub getAttachedFiles {
 }
 
 #-------------------------------------------------------------------
+
+=head2 getListTemplateVars ( $var )
+
+Appends template variables for list mode.
+
+=head3 $var
+
+A hash reference.  New template variables will be appended to it.
+
+=cut
+
 sub getListTemplateVars {
 	my $self = shift;
 	my $var = shift;
@@ -575,6 +744,16 @@ sub getListTemplateVars {
 
 #-------------------------------------------------------------------
 
+=head2 getFormUrl ($params)
+
+Returns a URL to this DataForm in form mode.
+
+=head3 $params
+
+URL parameters to append to the form URL.
+
+=cut
+
 sub getFormUrl {
     my $self = shift;
     my $params = shift;
@@ -616,7 +795,20 @@ sub getListUrl {
 }
 
 #-------------------------------------------------------------------
-# Template variables for normal form view and email message
+
+=head2 getRecordTemplateVars ($var, $entry)
+
+Template variables for normal form view and email message
+
+=head3 $var
+
+A hash reference.  Template variables will be appended to it.
+
+=head3 $entry
+
+The data entered by the user, as a WebGUI::AssetCollateral::DataForm::Entry object.
+
+=cut
 
 sub getRecordTemplateVars {
     my $self = shift;
@@ -686,6 +878,11 @@ sub getRecordTemplateVars {
         my $hidden
             = ($field->{status} eq 'hidden' && !$session->var->isAdminOn)
             || ($field->{isMailField} && !$self->get('mailData'));
+	
+	# populate Rich Editor field if the field is an HTMLArea
+	if ($field->{type} eq "HTMLArea") { 
+		$field->{htmlAreaRichEditor} = $self->get("htmlAreaRichEditor") ;
+	}
         my $form = $self->_createForm($field, $value);
         $value = $form->getValueAsHtml;
         my %fieldProperties = (
@@ -733,10 +930,14 @@ sub getRecordTemplateVars {
 
 #----------------------------------------------------------------------------
 
-=head2 getTemplateVars ( )
+=head2 getTemplateVars ( $var )
 
 Gets the default template vars for the asset. Includes the asset properties
 as well as shared template vars.
+
+=head3 $var
+
+A hash reference.  Template variables are appended to it.
 
 =cut
 
@@ -785,7 +986,7 @@ sub hasEntries {
 
 =head2 prepareView ( )
 
-See WebGUI::Asset::prepareView() for details.
+Extends the base class to handle form and list mode.
 
 =cut
 
@@ -802,6 +1003,14 @@ sub prepareView {
 }
 
 #-------------------------------------------------------------------
+
+=head2 purge 
+
+Extends the base method to handle deleting attached files and purging the
+entry collateral.
+
+=cut
+
 sub purge {
     my $self = shift;
     $self->deleteAttachedFiles;
@@ -810,6 +1019,22 @@ sub purge {
 }
 
 #-------------------------------------------------------------------
+
+=head2 sendEmail ($var, $entry)
+
+Sends an email with information about the data entered by the user.  The email
+is templated, and macros in the template will be expanded.
+
+=head3 $var
+
+A hash reference of template variables
+
+=head3 $entry
+
+The data entered by the user, as a WebGUI::AssetCollateral::DataForm::Entry object.
+
+=cut
+
 sub sendEmail {
     my $self = shift;
     my $var = shift;
@@ -898,6 +1123,13 @@ sub useCaptcha {
 }
 
 #-------------------------------------------------------------------
+
+=head2 view 
+
+Based on the view mode, renders either the form or the list.
+
+=cut
+
 sub view {
     my $self = shift;
     my $view = $self->currentView;
@@ -910,6 +1142,14 @@ sub view {
 }
 
 #-------------------------------------------------------------------
+
+=head2 canView 
+
+Extends the base method to include users who can edit the DataForm in list mode,
+or are part of the groupToViewEntries.
+
+=cut
+
 sub canView {
     my $self = shift;
     return 0
@@ -924,13 +1164,36 @@ sub canView {
     return 1;
 }
 
+#-------------------------------------------------------------------
+
+=head2 prepareViewList 
+
+Like prepareView, but for the list view of the template.
+
+=cut
+
 sub prepareViewList {
     my $self = shift;
     my $templateId = $self->get('listTemplateId');
     my $template = WebGUI::Asset::Template->new($self->session, $templateId);
+    if (!$template) {
+        WebGUI::Error::ObjectNotFound::Template->throw(
+            error      => qq{Template not found},
+            templateId => $templateId,
+            assetId    => $self->getId,
+        );
+    }
     $template->prepare($self->getMetaDataAsTemplateVariables);
     $self->{_viewListTemplate} = $template;
 }
+
+#-------------------------------------------------------------------
+
+=head2 viewList 
+
+Renders the list view of the DataForm.
+
+=cut
 
 sub viewList {
     my $self    = shift;
@@ -938,17 +1201,49 @@ sub viewList {
     return $self->processTemplate($self->getListTemplateVars($var), undef, $self->{_viewListTemplate});
 }
 
+#-------------------------------------------------------------------
+
+=head2 prepareViewForm 
+
+Prepare the template for the form mode of the template.
+
+=cut
+
 sub prepareViewForm {
     my $self = shift;
     $self->session->style->setLink($self->session->url->extras('tabs/tabs.css'), {"type"=>"text/css"});
     $self->session->style->setScript($self->session->url->extras('tabs/tabs.js'), {"type"=>"text/javascript"});
     my $templateId = $self->get('templateId');
     my $template = WebGUI::Asset::Template->new($self->session, $templateId);
+    if (!$template) {
+        WebGUI::Error::ObjectNotFound::Template->throw(
+            error      => qq{Template not found},
+            templateId => $templateId,
+            assetId    => $self->getId,
+        );
+    }
     $template->prepare($self->getMetaDataAsTemplateVariables);
     $self->{_viewFormTemplate} = $template;
 }
 
 #-------------------------------------------------------------------
+
+=head2 viewForm ($passedVars, $entry)
+
+Render the template for viewing the form of the DataForm.
+
+=head3 $passedVars
+
+A hash ref of template variables.  If passed in, the default record template
+variables will not be fetched.
+
+=head3 $entry
+
+A DataForm::Entry collateral object.  If not passed in, then it will try to look up
+an entry via the form variable C<entryId>.  If the user cannot edit the DataForm,
+then they cannot edit data that has already been entered.
+
+=cut
 
 sub viewForm {
     my $self        = shift;
@@ -963,11 +1258,26 @@ sub viewForm {
     return $self->processTemplate($var, undef, $self->{_viewFormTemplate});
 }
 
+#-------------------------------------------------------------------
+
+=head2 entryClass 
+
+Returns a string, the classname for entry collateral.
+
+=cut
+
 sub entryClass {
     return 'WebGUI::AssetCollateral::DataForm::Entry';
 }
 
 #-------------------------------------------------------------------
+
+=head2 www_deleteAllEntriesConfirm 
+
+Web facing method for deleting all data entered into the DataForm.
+
+=cut
+
 sub www_deleteAllEntriesConfirm {
     my $self = shift;
     return $self->session->privilege->insufficient
@@ -988,6 +1298,15 @@ sub www_deleteAllEntriesConfirm {
 #}
 
 #-------------------------------------------------------------------
+
+=head2 www_deleteEntry 
+
+Web facing method for deleting one entry from the DataForm, identified
+by the form variable C<entryId>.  Returns insufficient unless the
+current user canEdit the DataForm.  Returns the user to www_view.
+
+=cut
+
 sub www_deleteEntry {
     my $self = shift;
     return $self->session->privilege->insufficient
@@ -1000,6 +1319,18 @@ sub www_deleteEntry {
 }
 
 #-------------------------------------------------------------------
+
+=head2 www_deleteFieldConfirm 
+
+Web facing method for deleting one field from the DataForm, identified
+by the form variable C<fieldName>.  This operation is revisioned.
+
+Returns insufficient unless the current user canEdit the DataForm.
+
+Returns the user to www_view.
+
+=cut
+
 sub www_deleteFieldConfirm {
     my $self = shift;
     return $self->session->privilege->insufficient
@@ -1012,6 +1343,18 @@ sub www_deleteFieldConfirm {
 }
 
 #-------------------------------------------------------------------
+
+=head2 www_deleteTabConfirm
+
+Web facing method for deleting one tab from the DataForm, identified
+by the form variable C<tabId>.  This operation is revisioned.
+
+Returns insufficient unless the current user canEdit the DataForm.
+
+Returns the user to www_view.
+
+=cut
+
 sub www_deleteTabConfirm {
     my $self = shift;
     return $self->session->privilege->insufficient
@@ -1024,6 +1367,15 @@ sub www_deleteTabConfirm {
 }
 
 #-------------------------------------------------------------------
+
+=head2 www_editField 
+
+Renders a form to edit a field, identified by the form variable C<fieldName>.
+
+Returns insufficient unless the current user canEdit the DataForm.
+
+=cut
+
 sub www_editField {
     my $self = shift;
     return $self->session->privilege->insufficient
@@ -1164,6 +1516,14 @@ sub www_editField {
 }
 
 #-------------------------------------------------------------------
+
+=head2 www_editFieldSave 
+
+Process the editField form.  Returns insufficient unless the current
+user canEdit the DataForm.
+
+=cut
+
 sub www_editFieldSave {
     my $self = shift;
     my $session = $self->session;
@@ -1231,6 +1591,24 @@ sub www_editFieldSave {
     return $newSelf->www_view;
 }
 
+#-------------------------------------------------------------------
+
+=head2 createField ($fieldName, $field)
+
+Create a new field in the DataForm.  Returns 1 if the creation
+was successful
+
+=head3 $fieldName
+
+The name of the field to create.  Returns 0 if a field with the
+same name already exists.
+
+=head3 $field
+
+A hash ref of field data, added to the field configuration for this field.
+
+=cut
+
 sub createField {
     my $self = shift;
     my $fieldName = shift;
@@ -1246,6 +1624,23 @@ sub createField {
     $self->_saveFieldConfig;
     return 1;
 }
+
+#-------------------------------------------------------------------
+
+=head2 setField ($fieldName, $field)
+
+Updates a field in the DataForm.  Returns 1 if the update was successful
+
+=head3 $fieldName
+
+The name of the field to update.  Returns 0 if a field with the
+same name does not exist.
+
+=head3 $field
+
+A hash ref of field data, added to the field configuration for this field.
+
+=cut
 
 sub setField {
     my $self = shift;
@@ -1264,6 +1659,15 @@ sub setField {
 }
 
 #-------------------------------------------------------------------
+
+=head2 www_editTab 
+
+Renders a web form for adding new tabs, or editing existing tabs.  Returns
+insufficient unless the current user canEdit this DataForm.  The GUID of
+the tab is looked for in the form variable C<tabId>.
+
+=cut
+
 sub www_editTab {
     my $self = shift;
     return $self->session->privilege->insufficient
@@ -1311,6 +1715,14 @@ sub www_editTab {
 }
 
 #-------------------------------------------------------------------
+
+=head2 www_editTabSave 
+
+Process the editTab form.  Returns insufficient unless the current user canEdit
+this DataForm.
+
+=cut
+
 sub www_editTabSave {
     my $self = shift;
     return $self->session->privilege->insufficient
@@ -1342,6 +1754,14 @@ sub www_editTabSave {
 }
 
 #-------------------------------------------------------------------
+
+=head2 www_exportTab 
+
+Exports all the data entered into the DataForm in CSV format.  Returns
+insufficient unless the current user canEdit this DataForm.
+
+=cut
+
 sub www_exportTab {
     my $self = shift;
     my $session = $self->session;
@@ -1385,6 +1805,17 @@ sub www_exportTab {
 }
 
 #-------------------------------------------------------------------
+
+=head2 www_moveFieldDown 
+
+Web facing method to move a field one position down.  The field is identified
+by the form variable C<fieldName>.  Returns insufficient unless the current user canEdit
+this DataForm.
+
+This operation is revisioned.
+
+=cut
+
 sub www_moveFieldDown {
     my $self = shift;
     return $self->session->privilege->insufficient
@@ -1395,6 +1826,18 @@ sub www_moveFieldDown {
     WebGUI::VersionTag->autoCommitWorkingIfEnabled($self->session);
     return $newSelf->www_view;
 }
+
+#-------------------------------------------------------------------
+
+=head2 moveFieldDown ($fieldName)
+
+Shifts the field one position down in the field order.
+
+=head3 $fieldName
+
+The name of the field to move.
+
+=cut
 
 sub moveFieldDown {
     my $self = shift;
@@ -1419,6 +1862,17 @@ sub moveFieldDown {
 }
 
 #-------------------------------------------------------------------
+
+=head2 www_moveFieldUp 
+
+Web facing method to move a field one position up.  The field is identified
+by the form variable C<fieldName>.  Returns insufficient unless the current user canEdit
+this DataForm.
+
+This operation is revisioned.
+
+=cut
+
 sub www_moveFieldUp {
     my $self = shift;
     return $self->session->privilege->insufficient
@@ -1429,6 +1883,18 @@ sub www_moveFieldUp {
     WebGUI::VersionTag->autoCommitWorkingIfEnabled($self->session);
     return $newSelf->www_view;
 }
+
+#-------------------------------------------------------------------
+
+=head2 moveFieldUp ($fieldName)
+
+Shifts the field one position up in the field order.
+
+=head3 $fieldName
+
+The name of the field to move.
+
+=cut
 
 sub moveFieldUp {
     my $self = shift;
@@ -1454,6 +1920,17 @@ sub moveFieldUp {
 }
 
 #-------------------------------------------------------------------
+
+=head2 www_moveTabRight 
+
+Web facing method to move a tab one position to the right.  The tab is identified
+by the form variable C<tabId>.  Returns insufficient unless the current user canEdit
+this DataForm.
+
+This operation is revisioned.
+
+=cut
+
 sub www_moveTabRight {
     my $self = shift;
     return $self->session->privilege->insufficient
@@ -1465,6 +1942,18 @@ sub www_moveTabRight {
     return $newSelf->www_view;
 }
 
+
+#-------------------------------------------------------------------
+
+=head2 moveTabRight ($tabId)
+
+Shifts the tab one position to the right in the tab order.
+
+=head3 $tabId
+
+The GUID of the tab to move.
+
+=cut
 
 sub moveTabRight {
     my $self = shift;
@@ -1484,6 +1973,17 @@ sub moveTabRight {
 }
 
 #-------------------------------------------------------------------
+
+=head2 www_moveTabLeft 
+
+Web facing method to move a tab one position to the left.  The tab is identified
+by the form variable C<tabId>.  Returns insufficient unless the current user canEdit
+this DataForm.
+
+This operation is revisioned.
+
+=cut
+
 sub www_moveTabLeft {
     my $self = shift;
     return $self->session->privilege->insufficient
@@ -1495,6 +1995,17 @@ sub www_moveTabLeft {
     return $newSelf->www_view;
 }
 
+#-------------------------------------------------------------------
+
+=head2 moveTabLeft ($tabId)
+
+Shifts the tab one position to the left in the tab order.
+
+=head3 $tabId
+
+The GUID of the tab to move.
+
+=cut
 
 sub moveTabLeft {
     my $self = shift;
@@ -1515,6 +2026,14 @@ sub moveTabLeft {
 }
 
 #-------------------------------------------------------------------
+
+=head2 www_process 
+
+Process the form for a user entering new data.  Returns insufficient unless
+the current user canView the DataForm.
+
+=cut
+
 sub www_process {
     my $self = shift;
     return $self->session->privilege->insufficient
@@ -1576,7 +2095,7 @@ sub www_process {
     if (@errors) {
         $var->{error_loop} = \@errors;
         $self->prepareViewForm;
-        return $self->processStyle($self->viewForm($var, $entry));
+        return $self->processStyle($self->viewForm($var, $entry), { noHeadTags => 1 });
     }
 
     # Send email

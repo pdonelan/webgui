@@ -17,6 +17,8 @@ package WebGUI::Asset;
 use Carp qw( croak confess );
 use Scalar::Util qw( blessed );
 use Clone qw(clone);
+use JSON;
+use HTML::Packer;
 
 use WebGUI::AssetBranch;
 use WebGUI::AssetClipboard;
@@ -34,6 +36,7 @@ use WebGUI::Form;
 use WebGUI::HTML;
 use WebGUI::HTMLForm;
 use WebGUI::Keyword;
+use WebGUI::ProgressBar;
 use WebGUI::Search::Index;
 use WebGUI::TabForm;
 use WebGUI::Utility;
@@ -445,6 +448,20 @@ sub definition {
                         fieldType=>'codearea',
                         defaultValue=>undef,
                         customDrawMethod => 'drawExtraHeadTags',
+                        filter  => 'packExtraHeadTags',
+                    },
+                    extraHeadTagsPacked => {
+                        fieldType       => 'hidden',
+                        defaultValue    => undef,
+                        noFormPost      => 1,
+                    },
+                    usePackedHeadTags => {
+                        tab             => "meta",
+                        label           => $i18n->get('usePackedHeadTags label'),
+                        hoverHelp       => $i18n->get('usePackedHeadTags description'),
+                        uiLevel         => 7,
+                        fieldType       => 'yesNo',
+                        defaultValue    => 0,
                     },
 				    isPackage=>{
 					    label=>$i18n->get("make package"),
@@ -683,7 +700,7 @@ sub fixUrl {
 	# check to see if the url already exists or not, and increment it if it does
     if ($self->urlExists($self->session, $url, {assetId=>$self->getId})) {
         my @parts = split(/\./,$url);
-        if ($parts[0] =~ /(.*)(\d+$)/) {
+        if ($parts[0] =~ /(.*?)(\d+$)/) {
             $parts[0] = $1.($2+1);
         }
         else {
@@ -827,27 +844,28 @@ adding additional tabs.
 =cut
 
 sub getEditForm {
-	my $self = shift;
-	my $i18n = WebGUI::International->new($self->session, "Asset");
+    my $self    = shift;
+    my $session = $self->session;
+	my $i18n = WebGUI::International->new($session, "Asset");
 	my $ago = $i18n->get("ago");
-	my $tabform = WebGUI::TabForm->new($self->session,undef,undef,$self->getUrl());
-	my $overrides = $self->session->config->get("assets/".$self->get("className"));
+	my $tabform = WebGUI::TabForm->new($session,undef,undef,$self->getUrl());
+	my $overrides = $session->config->get("assets/".$self->get("className"));
 
     # Set the appropriate URL
     # If we're adding a new asset, don't set anything
-    if ( $self->session->form->get( "func" ) ne "add" ) {
+    if ( $session->form->get( "func" ) ne "add" ) {
         $tabform->formHeader( { action => $self->getUrl, method => "POST" } );
     }
 
-	if ($self->session->config->get("enableSaveAndCommit")) {
-		$tabform->submitAppend(WebGUI::Form::submit($self->session, {
+	if ($session->config->get("enableSaveAndCommit")) {
+		$tabform->submitAppend(WebGUI::Form::submit($session, {
             name    => "saveAndCommit", 
             value   => $i18n->get("save and commit"),
             }));
 	}
 
     $tabform->submitAppend( 
-        WebGUI::Form::submit ( $self->session, {
+        WebGUI::Form::submit ( $session, {
             name    => "saveAndReturn",
             value   => $i18n->get( "apply" ),
         } ) 
@@ -861,7 +879,7 @@ sub getEditForm {
 	my $class;
 	if ($self->getId eq "new") {
 		$assetId = "new";
-		$class = $self->session->form->process("class","className");
+		$class = $session->form->process("class","className");
 	}
 	else {
 		# revision history
@@ -869,17 +887,23 @@ sub getEditForm {
 		$class = $self->get('className');
 		my $ac = $self->getAdminConsole;
 		$ac->addSubmenuItem($self->getUrl("func=manageRevisions"),$i18n->get("revisions").":");
-		my $rs = $self->session->db->read("select revisionDate from assetData where assetId=? order by revisionDate desc limit 5", [$assetId]);
+		my $rs = $session->db->read("select revisionDate from assetData where assetId=? order by revisionDate desc limit 5", [$assetId]);
 		while (my ($version) = $rs->array) {
-			my ($interval, $units) = $self->session->datetime->secondsToInterval(time() - $version);
+			my ($interval, $units) = $session->datetime->secondsToInterval(time() - $version);
 			$ac->addSubmenuItem($self->getUrl("func=edit;revision=".$version), $interval." ".$units." ".$ago);
 		}
 	}
-	if ($self->session->form->process("proceed")) {
+	if (my $proceed = $session->form->process("proceed")) {
 		$tabform->hidden({
 			name=>"proceed",
-			value=>$self->session->form->process("proceed")
-			});
+			value=>$proceed,
+        });
+        if (my $returnUrl = $session->form->process('returnUrl')) {
+            $tabform->hidden({
+                name=>"returnUrl",
+                value=>$returnUrl,
+            });
+        }
 	}
 	
 	# create tabs
@@ -900,7 +924,7 @@ sub getEditForm {
 	}
 
 	# process errors
-	my $errors = $self->session->stow->get('editFormErrors');
+	my $errors = $session->stow->get('editFormErrors');
 	if ($errors) {
 		$tabform->getTab("properties")->readOnly(
 			-value=>"<p>Some error(s) occurred:<ul><li>".join('</li><li>', @$errors).'</li></ul></p>',
@@ -908,7 +932,7 @@ sub getEditForm {
 	}
 
 	# build the definition to the generate form
-	my @definitions = reverse @{$self->definition($self->session)};
+	my @definitions = reverse @{$self->definition($session)};
 	tie my %baseProperties, 'Tie::IxHash';
 	%baseProperties = (
 		assetId	=> {
@@ -941,7 +965,7 @@ sub getEditForm {
 
 	# extend the definition with metadata
 	tie my %extendedProperties, 'Tie::IxHash';
-    if ($self->session->setting->get("metaDataEnabled")) {
+    if ($session->setting->get("metaDataEnabled")) {
 		my $meta = $self->getMetaDataFields();
 		foreach my $field (keys %$meta) {
 			my $fieldType = $meta->{$field}{fieldType} || "text";
@@ -963,7 +987,7 @@ sub getEditForm {
 			};
 		}
 		# add metadata management
-		if ($self->session->user->isAdmin) {
+		if ($session->user->isAdmin) {
 			$extendedProperties{_metadatamanagement} = {
 				tab			=> "meta",
 				fieldType	=> "readOnly",
@@ -1085,7 +1109,10 @@ Returns the extraHeadTags stored in the asset.  Called in $self->session->style-
 
 sub getExtraHeadTags {
 	my $self = shift;
-	return $self->get("extraHeadTags");
+	return $self->get('usePackedHeadTags') 
+            ? $self->get('extraHeadTagsPacked')
+            : $self->get("extraHeadTags")
+            ;
 }
 
 
@@ -1185,6 +1212,21 @@ sub getIsa {
 
 #-------------------------------------------------------------------
 
+=head2 getManagerUrl ( )
+
+Returns the URL for the asset manager.
+
+=cut
+
+sub getManagerUrl {
+	my $self = shift;
+	return $self->getUrl( 'op=assetManager' );
+}
+
+
+
+#-------------------------------------------------------------------
+
 =head2 getMedia ( session )
 
 Constructor. Returns the media folder.
@@ -1252,6 +1294,32 @@ sub getNotFound {
 	return WebGUI::Asset->newByDynamicClass($session, $session->setting->get("notFoundPage"));
 }
 
+
+#-------------------------------------------------------------------
+
+=head2 getPrototypeList ( )
+
+Returns an array of all assets that the user can view and edit that are prototypes.
+
+=cut
+
+sub getPrototypeList {
+    my $self    = shift;
+    my $session = $self->session;
+    my $db      = $session->db;
+    my @prototypeIds = $db->buildArray("select distinct assetId from assetData where isPrototype=1");
+    my $userUiLevel = $session->user->profileField('uiLevel');
+    my @assets;
+    ID: foreach my $id (@prototypeIds) {
+        my $asset = WebGUI::Asset->newByDynamicClass($session, $id);
+        next ID unless defined $asset;
+        next ID unless $asset->get('isPrototype');
+        next ID unless ($asset->get('status') eq 'approved' || $asset->get('tagId') eq $session->scratch->get("versionTag"));
+        push @assets, $asset;
+    }
+    return \@assets;
+
+}
 
 #-------------------------------------------------------------------
 
@@ -1431,7 +1499,7 @@ sub getToolbar {
     if ($userUiLevel >= $uiLevels->{"manage"}) {
         $output
             .= '<li class="yuimenuitem"><a class="yuimenuitemlabel" href="'
-            . $self->getUrl("op=assetManager") . '">' . $i18n->get("manage") . '</a></li>';
+            . $self->getManagerUrl . '">' . $i18n->get("manage") . '</a></li>';
     }
     $output .= '</ul></div></div>' . $toolbar . '</div>';
     $self->{_toolbar} = $output;
@@ -1927,8 +1995,9 @@ sub outputWidgetMarkup {
     my $styleTemplateId     = shift;
 
     # construct / retrieve the values we'll use later.
-    my $assetId         = $self->getId;
     my $session         = $self->session;
+    my $assetId         = $self->getId;
+    my $hexId           = $session->id->toHex($assetId);
     my $conf            = $session->config;
     my $extras          = $conf->get('extrasURL');
 
@@ -1953,7 +2022,8 @@ sub outputWidgetMarkup {
     }
     WebGUI::Macro::process($session, \$content);
     my ($headTags, $body) = WebGUI::HTML::splitHeadBody($content);
-    my $jsonContent     = to_json( { "asset$assetId" => { content => $body } } );
+    $body = $content;
+    my $jsonContent     = to_json( { "asset$hexId" => { content => $body } } );
     $storage->addFileFromScalar("$assetId.js", "data = $jsonContent");
     my $jsonUrl         = $storage->getUrl("$assetId.js");
 
@@ -1979,19 +2049,42 @@ sub outputWidgetMarkup {
         <script type='text/javascript' src='$wgWidgetJs'></script>
         <script type='text/javascript'>
             function setupPage() {
-                WebGUI.widgetBox.doTemplate('widget$assetId'); WebGUI.widgetBox.retargetLinksAndForms();
+                WebGUI.widgetBox.doTemplate('widget$hexId'); WebGUI.widgetBox.retargetLinksAndForms();
                 WebGUI.widgetBox.initButton( { 'wgWidgetPath' : '$wgWidgetPath', 'fullUrl' : '$fullUrl', 'assetId' : '$assetId', 'width' : $width, 'height' : $height, 'templateId' : '$templateId' } );
             }
             YAHOO.util.Event.addListener(window, 'load', setupPage);
         </script>
         $headTags
     </head>
-    <body id="widget$assetId">
-        \${asset$assetId.content}
+    <body id="widget$hexId">
+        \${asset$hexId.content}
     </body>
 </html>
 OUTPUT
     return $output;
+}
+
+#-------------------------------------------------------------------
+
+=head2 packExtraHeadTags ( unpacked )
+
+Pack the extra head tags. Return the unpacked head tags (as per
+filter guidelines).
+
+=cut
+
+sub packExtraHeadTags {
+    my ( $self, $unpacked ) = @_;
+    return $unpacked if !$unpacked;
+    my $packed  = $unpacked;
+    HTML::Packer::minify( \$packed, {
+        remove_comments     => 1,
+        remove_newlines     => 1,
+        do_javascript       => "shrink",
+        do_stylesheet       => "minify",
+    } );
+    $self->update({ extraHeadTagsPacked => $packed });
+    return $unpacked;
 }
 
 #-------------------------------------------------------------------
@@ -2129,7 +2222,6 @@ sub processTemplate {
         $self->session->errorHandler->error("First argument to processTemplate() should be a hash reference.");
         return "Error: Can't process template for asset ".$self->getId." of type ".$self->get("className");
     }
-
     $template = WebGUI::Asset->new($self->session, $templateId,"WebGUI::Asset::Template") unless (defined $template);
     if (defined $template) {
         $var = { %{ $var }, %{ $self->getMetaDataAsTemplateVariables } };
@@ -2151,23 +2243,30 @@ sub processTemplate {
 
 #-------------------------------------------------------------------
 
-=head2 processStyle ( html )
+=head2 processStyle ( $output, $noHeadTags )
 
-Returns some HTML wrappered in a style. Should be overridden by subclasses, because
+Returns the output wrappered in a style. Should be overridden by subclasses, because
 this one actually doesn't do anything other than return the html back to you and
 adds the Asset's extraHeadTags into the raw head tags.
 
-=head3 html
+=head3 $output
 
 The content to wrap up.
+
+=head3 $options
+
+Options that alter how the method behaves.
+
+=head4 noHeadTags
+
+If this options is true, then this method will not set the extraHeadTags
 
 =cut
 
 sub processStyle {
-	my ($self, $output) = @_;
-    my $session = $self->session;
-    my $style   = $session->style;
-    $style->setRawHeadTags($self->getExtraHeadTags);
+	my ($self, $output, $options) = @_;
+    my $style   = $self->session->style;
+    $style->setRawHeadTags($self->getExtraHeadTags) unless $options->{noHeadTags};
     if ($self->get('synopsis')) {
         $style->setMeta({
             name    => 'Description',
@@ -2581,7 +2680,7 @@ sub www_changeUrlConfirm {
 	}
 
 	if ($self->session->form->param("proceed") eq "manageAssets") {
-		$self->session->http->setRedirect($self->getUrl('op=assetManager'));
+		$self->session->http->setRedirect($self->getManagerUrl);
 	} else {
 		$self->session->http->setRedirect($self->getUrl());
 	}
@@ -2608,23 +2707,20 @@ sub www_edit {
 
 =head2 www_editSave ( )
 
-Saves and updates history. If canEdit, returns www_manageAssets() if a new Asset is created, otherwise returns www_view().  Will return an insufficient Privilege if canEdit returns False.
+Saves and updates history. If canEdit, returns www_manageAssets() if a new Asset is created, otherwise returns www_view().  Will return an insufficient Privilege if canEdit returns False, or if the submitted form does not pass the C<$session->form->validToken> check.
 
 NOTE: Don't try to override or overload this method. It won't work. What you are looking for is processPropertiesFromFormPost().
 
 =cut
 
 sub www_editSave {
-    my $self = shift;
-    
-    my $annotations = "";
-    if ($self->isa("WebGUI::Asset::File::Image")) {
-        $annotations = $self->get("annotations");
-    }
+    my $self    = shift;
+    my $session = $self->session;
+
     ##If this is a new asset (www_add), the parent may be locked.  We should still be able to add a new asset.
-    my $isNewAsset = $self->session->form->process("assetId") eq "new" ? 1 : 0;
-    return $self->session->privilege->locked() if (!$self->canEditIfLocked and !$isNewAsset);
-    return $self->session->privilege->insufficient() unless $self->canEdit;
+    my $isNewAsset = $session->form->process("assetId") eq "new" ? 1 : 0;
+    return $session->privilege->locked() if (!$self->canEditIfLocked and !$isNewAsset);
+    return $session->privilege->insufficient() unless $self->canEdit && $session->form->validToken;
     if ($self->session->config("maximumAssets")) {
         my ($count) = $self->session->db->quickArray("select count(*) from asset");
         my $i18n = WebGUI::International->new($self->session, "Asset");
@@ -2632,7 +2728,7 @@ sub www_editSave {
     }
     my $object;
     if ($isNewAsset) {
-        $object = $self->addChild({className=>$self->session->form->process("class","className")});	
+        $object = $self->addChild({className=>$session->form->process("class","className")});	
         return $self->www_view unless defined $object;
         $object->{_parent} = $self;
         $object->{_properties}{url} = undef;
@@ -2642,15 +2738,15 @@ sub www_editSave {
             $object = $self->addRevision;
         } 
         else {
-            return $self->session->asset($self->getContainer)->www_view;
+            return $session->asset($self->getContainer)->www_view;
         }
     }
 
     # Process properties from form post
     my $errors = $object->processPropertiesFromFormPost;
     if (ref $errors eq 'ARRAY') {
-        $self->session->stow->set('editFormErrors', $errors);
-        if ($self->session->form->process('assetId') eq 'new') {
+        $session->stow->set('editFormErrors', $errors);
+        if ($session->form->process('assetId') eq 'new') {
             $object->purge;
             return $self->www_add();
         } else {
@@ -2658,50 +2754,58 @@ sub www_editSave {
             return $self->www_edit();
         }
     }
-    
-    if ($self->isa("WebGUI::Asset::File::Image")) {
-        $object->update({ annotations => $annotations });
-    }
-
-    ### 
 
     $object->updateHistory("edited");
 
     # we handle auto commit assets here in case they didn't handle it themselves
-    if ($object->getAutoCommitWorkflowId && $self->hasBeenCommitted) {
+    if ($object->getAutoCommitWorkflowId) {
         $object->requestAutoCommit;
     }
     # else, try to to auto commit
-    elsif(WebGUI::VersionTag->autoCommitWorkingIfEnabled($self->session, {
-        override        => scalar $self->session->form->process('saveAndCommit'),
-        allowComments   => 1,
-        returnUrl       => $self->getUrl,
-    }) eq 'redirect') {
-        return undef;
+    else {
+        my $commitStatus = WebGUI::VersionTag->autoCommitWorkingIfEnabled($session, {
+            override        => scalar $session->form->process('saveAndCommit'),
+            allowComments   => 1,
+            returnUrl       => $self->getUrl,
+        });
+        if ($commitStatus eq 'redirect') {
+            ##Redirect set by tag.  Return nothing to send the user over to the redirect.
+            return undef;
+        }
+        elsif ($commitStatus eq 'commit') {
+            ##Commit was successful.  Update the local object cache so that it will no longer
+            ##register as locked.
+            $self->{_properties}{isLockedBy} = $object->{_properties}{isLockedBy} = undef;
+        }
     }
 
     # Handle "saveAndReturn" button
-    if ( $self->session->form->process( "saveAndReturn" ) ne "" ) {
+    if ( $session->form->process( "saveAndReturn" ) ne "" ) {
         return $object->www_edit;
     }
 
     # Handle "proceed" form parameter
-    if ($self->session->form->process("proceed") eq "manageAssets") {
+    my $proceed = $self->session->form->process('proceed');
+    if ($proceed eq "manageAssets") {
         $self->session->asset($object->getParent);
         return $self->session->asset->www_manageAssets;
     }
-    elsif ($self->session->form->process("proceed") eq "viewParent") {
+    elsif ($proceed eq "viewParent") {
         $self->session->asset($object->getParent);
         return $self->session->asset->www_view;
     }
-    elsif ($self->session->form->process("proceed") ne "") {
+    elsif ($proceed eq "goBackToPage" && $self->session->form->process('returnUrl')) {
+        $self->session->http->setRedirect($self->session->form->process("returnUrl"));
+        return undef;
+    }
+    elsif ($proceed ne "") {
         my $method = "www_".$self->session->form->process("proceed");
         $self->session->asset($object);
         return $self->session->asset->$method();
     }
 
-    $self->session->asset($object->getContainer);
-    return $self->session->asset->www_view;
+    $session->asset($object->getContainer);
+    return $session->asset->www_view;
 }
 
 
@@ -2716,7 +2820,7 @@ compatibility)
 
 sub www_manageAssets {
     my $self = shift;
-    $self->session->http->setRedirect( $self->getUrl( 'op=assetManager' ) );
+    $self->session->http->setRedirect( $self->getManagerUrl );
     return "redirect";
 }
 

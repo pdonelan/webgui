@@ -98,7 +98,7 @@ sub handler {
             if ($mimeType eq 'text/css') {
                 $session->output->print("\n/* Page generated in $t seconds. */\n");
             } 
-            elsif ($mimeType eq 'text/html') {
+            elsif ($mimeType =~ m{text/html}) {
                 $session->output->print("\nPage generated in $t seconds.\n");
             } 
             else {
@@ -207,7 +207,10 @@ sub tryAssetMethod {
 	$session->asset($asset);
 	my $methodToTry = "www_".$method;
 	my $output = eval{$asset->$methodToTry()};
-	if ($@) {
+    if (my $e = Exception::Class->caught('WebGUI::Error::ObjectNotFound::Template')) {
+        $session->errorHandler->error(sprintf "%s templateId: %s assetId: %s", $e->error, $e->templateId, $e->assetId);
+    }
+	elsif ($@) {
 		$session->errorHandler->warn("Couldn't call method ".$method." on asset for url: ".$session->url->getRequestedUrl." Root cause: ".$@);
 		if ($method ne "view") {
 			$output = tryAssetMethod($session,$asset,'view');

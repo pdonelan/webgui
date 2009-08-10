@@ -201,8 +201,8 @@ Returns the user to www_editProfileSettings when done.
 
 #-------------------------------------------------------------------
 sub www_editProfileCategorySave {
-	my $session = shift;
-        return $session->privilege->adminOnly() unless canView($session);
+    my $session = shift;
+    return $session->privilege->adminOnly() unless canView($session) && $session->form->validToken();
 	my %data = (
 		label      => $session->form->text("label"),
         shortLabel => $session->form->text("shortLabel"),
@@ -301,7 +301,14 @@ sub www_editProfileField {
             -value=>$data->{forceImageOnly},
             -defaultValue=>1,
         );
-    }	
+    }
+    $f->radioList(
+        -name       => 'defaultPrivacySetting',
+        -label      => $i18n->get('default privacy setting label'),
+        -hoverHelp  => $i18n->get('default privacy setting description'),
+        -options    => WebGUI::ProfileField->getPrivacyOptions($session),
+        -value      => $data->{defaultPrivacySetting}
+    );	
     my $fieldType = WebGUI::Form::FieldType->new($session,
         -name=>"fieldType",
         -label=>$i18n->get(486),
@@ -359,8 +366,8 @@ Returns the user to www_editProfileSettings when done.
 
 #-------------------------------------------------------------------
 sub www_editProfileFieldSave {
-	my $session = shift;
-        return $session->privilege->adminOnly() unless canView($session);
+    my $session = shift;
+    return $session->privilege->adminOnly() unless canView($session) && $session->form->validToken();
 
 	# Special case for WebGUI auth password recovery.
 	my $requiredForPasswordRecovery = $session->form->yesNo('requiredForPasswordRecovery');
@@ -384,6 +391,7 @@ sub www_editProfileFieldSave {
 		fieldType=>$session->form->fieldType("fieldType"),
 		forceImageOnly=>$session->form->yesNo("forceImageOnly"),
         extras=>$session->form->text('extras'),
+        defaultPrivacySetting=>$session->form->radioList('defaultPrivacySetting'),
 		);
 	my $categoryId = $session->form->selectBox("profileCategoryId");
 	if ($session->form->process("new")) {

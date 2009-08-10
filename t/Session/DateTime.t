@@ -17,7 +17,7 @@ use File::Spec;
 use WebGUI::Test;
 use WebGUI::Session;
 
-use Test::More tests => 77; # increment this value for each test you create
+use Test::More tests => 90; # increment this value for each test you create
 
 installBadLocale();
  
@@ -93,16 +93,19 @@ is ($dt->getTimeZone(), 'America/Chicago', 'getTimeZone: fetching cached version
 my $buster = WebGUI::User->new($session, "new");
 $buster->profileField('timeZone', 'Amerigo/Vespucci');
 $session->user({user => $buster});
+WebGUI::Test->usersToDelete($buster);
 is ($dt->getTimeZone(), 'America/Chicago', 'getTimeZone: time zones not in the approved list get reset to the default');
 
 my $dude = WebGUI::User->new($session, "new");
 $dude->profileField('timeZone', 'Australia/Perth');
 $session->user({user => $dude});
+WebGUI::Test->usersToDelete($dude);
 is ($dt->getTimeZone(), 'Australia/Perth', 'getTimeZone: valid time zones are allowed');
 
 my $bud = WebGUI::User->new($session, "new");
 $bud->profileField('timeZone', '');
 $session->user({user => $bud});
+WebGUI::Test->usersToDelete($bud);
 is ($dt->getTimeZone(), 'America/Chicago', q|getTimeZone: if user's time zone doesn't exist, then return America/Chicago|);
 
 $session->user({userId => 1});  ##back to Visitor
@@ -209,19 +212,39 @@ cmp_ok(
 
 ####################################################
 #
-# secondsToInverval
+# secondsToInterval
 #
 ####################################################
 
-is(join(" ",$dt->secondsToInterval(60*60*24*365*2)),   "2 Year(s)", "secondsToInterval(), years");
-is(join(" ",$dt->secondsToInterval(60*60*24*365*2.4)), "2 Year(s)", "secondsToInterval(), years, rounded down");
-is(join(" ",$dt->secondsToInterval(60*60*24*365*2.9)), "3 Year(s)", "secondsToInterval(), years, rounded up");
-is(join(" ",$dt->secondsToInterval(60*60*24*363)), "12 Month(s)",  "secondsToInterval(), months");
-is(join(" ",$dt->secondsToInterval(60*60*24*7*3)), "3 Week(s)",    "secondsToInterval(), weeks");
-is(join(" ",$dt->secondsToInterval(60*60*24*5)),   "5 Day(s)",     "secondsToInterval(), days");
-is(join(" ",$dt->secondsToInterval(60*60*18)),     "18 Hour(s)",   "secondsToInterval(), hours");
-is(join(" ",$dt->secondsToInterval(60*27)),        "27 Minute(s)", "secondsToInterval(), minutes");
-is(join(" ",$dt->secondsToInterval(59)),           "59 Second(s)", "secondsToInterval(), seconds");
+is(join(" ",$dt->secondsToInterval(60*60*24*365*2)),   "2 Year(s)",     "secondsToInterval(), years");
+is(join(" ",$dt->secondsToInterval(60*60*24*180)),     "6 Month(s)",    "secondsToInterval(), months");
+is(join(" ",$dt->secondsToInterval(60*60*24*7*3)),     "3 Week(s)",     "secondsToInterval(), weeks");
+is(join(" ",$dt->secondsToInterval(60*60*24*5)),       "5 Day(s)",      "secondsToInterval(), days");
+is(join(" ",$dt->secondsToInterval(60*60*24*8)),       "1 Week(s)",     "secondsToInterval(), days, longer than a week");
+is(join(" ",$dt->secondsToInterval(60*60*24*363)),     "12 Month(s)",   "secondsToInterval(), days, longer than a month");
+is(join(" ",$dt->secondsToInterval(60*60*24*365*2.4)), "2 Year(s)",     "secondsToInterval(), days, longer than a year");
+is(join(" ",$dt->secondsToInterval(60*60*18)),         "18 Hour(s)",    "secondsToInterval(), hours");
+is(join(" ",$dt->secondsToInterval(60*60*24*365*2.9)), "3 Year(s)",     "secondsToInterval(), hours, longer than a year");
+is(join(" ",$dt->secondsToInterval(60*27)),            "27 Minute(s)",  "secondsToInterval(), minutes");
+is(join(" ",$dt->secondsToInterval(59)),               "59 Second(s)",  "secondsToInterval(), seconds");
+
+####################################################
+#
+# secondsToExactInterval
+#
+####################################################
+
+is(join(" ",$dt->secondsToExactInterval(60*60*24*365*2)),   "2 Year(s)",     "secondsToExactInterval(), years");
+is(join(" ",$dt->secondsToExactInterval(60*60*24*180)),     "6 Month(s)",    "secondsToExactInterval(), months");
+is(join(" ",$dt->secondsToExactInterval(60*60*24*7*3)),     "3 Week(s)",     "secondsToExactInterval(), weeks");
+is(join(" ",$dt->secondsToExactInterval(60*60*24*5)),       "5 Day(s)",      "secondsToExactInterval(), days");
+is(join(" ",$dt->secondsToExactInterval(60*60*24*8)),       "8 Day(s)",      "secondsToExactInterval(), days, longer than a week");
+is(join(" ",$dt->secondsToExactInterval(60*60*24*363)),     "363 Day(s)",    "secondsToExactInterval(), days, longer than a month");
+is(join(" ",$dt->secondsToExactInterval(60*60*24*365*2.4)), "876 Day(s)",    "secondsToExactInterval(), days, longer than a year");
+is(join(" ",$dt->secondsToExactInterval(60*60*18)),         "18 Hour(s)",    "secondsToExactInterval(), hours");
+is(join(" ",$dt->secondsToExactInterval(60*60*24*365*2.9)), "25404 Hour(s)", "secondsToExactInterval(), hours, longer than a year");
+is(join(" ",$dt->secondsToExactInterval(60*27)),            "27 Minute(s)",  "secondsToExactInterval(), minutes");
+is(join(" ",$dt->secondsToExactInterval(59)),               "59 Second(s)",  "secondsToExactInterval(), seconds");
 
 ####################################################
 #
@@ -284,7 +307,4 @@ sub installBadLocale {
 
 END {
 	unlink File::Spec->catfile(WebGUI::Test->lib, qw/WebGUI i18n BadLocale.pm/);
-    foreach my $account ($buster, $dude, $bud) {
-        (defined $account  and ref $account  eq 'WebGUI::User') and $account->delete;
-    }
 }

@@ -17,19 +17,23 @@ use FindBin;
 use strict;
 use lib "$FindBin::Bin/lib";
 use Test::More;
+use Data::Dumper;
 use WebGUI::Test; # Must use this before any other WebGUI modules
 use WebGUI::Session;
+use WebGUI::Form::Text;
+use WebGUI::Form::HTMLArea;
 
 #----------------------------------------------------------------------------
 # Init
 my $session         = WebGUI::Test->session;
 
 my $newUser         = WebGUI::User->create( $session );
+WebGUI::Test->usersToDelete($newUser);
 
 #----------------------------------------------------------------------------
 # Tests
 
-plan tests => 17;        # Increment this number for each test you create
+plan tests => 37;        # Increment this number for each test you create
 
 #----------------------------------------------------------------------------
 # Test the creation of ProfileField
@@ -66,19 +70,88 @@ like( $ff, qr/value="$ffvalue"[^>]+selected/, 'html returned contains value, uiL
 $ff         = undef;
 $ffvalue    = undef;
 ok( $ff = $aliasField->formField(undef, undef, $newUser), 'formField method returns something, alias field, defaulted user' );
-my $ffvalue = $newUser->profileField('alias');
+$ffvalue = $newUser->profileField('alias');
 like( $ff, qr/$ffvalue/, 'html returned contains value, alias field, defaulted user' );
 
 $ff         = undef;
 $ffvalue    = undef;
 ok( $ff = $uilevelField->formField(undef, undef, $newUser), 'formField method returns something, uiLevel field, defaulted user' );
-my $ffvalue = $newUser->profileField('uiLevel');
+$ffvalue = $newUser->profileField('uiLevel');
 like( $ff, qr/$ffvalue/, 'html returned contains value, uiLevel field, defaulted user' );
+
+###########################################################
+#
+# create
+#
+###########################################################
+
+my $newProfileField = WebGUI::ProfileField->create($session, 'testField', {
+    fieldType => 'Float',  ##Note, intentionally choosing a non-Text type of field
+    label     => 'Test Field',
+});
+
+is($newProfileField->get('fieldType'), 'Float', 'create: makes field with correct type');
+is($newProfileField->get('label'), 'Test Field', 'correct label');
+is($newProfileField->getLabel, 'Test Field', 'getLabel works, too');
+
+my $textFieldType = lc WebGUI::Form::Float->getDatabaseFieldType();
+my $htmlFieldType = lc WebGUI::Form::HTMLArea->getDatabaseFieldType();
+
+my $fieldSpec = $session->db->quickHashRef('describe userProfileData testField');
+is (lc $fieldSpec->{Type}, $textFieldType, 'test field created with correct type for text field');
+
+$newProfileField->set({ fieldType => 'HTMLArea' });
+is($newProfileField->get('fieldType'), 'HTMLArea', 'test field updated to HTMLArea');
+
+$fieldSpec = $session->db->quickHashRef('describe userProfileData testField');
+is (lc $fieldSpec->{Type}, $htmlFieldType, 'database updated along with profile field object');
+
+my $newProfileField2 = WebGUI::ProfileField->create($session, 'testField2', {
+    label     => q|WebGUI::International::get('webgui','WebGUI')|,
+    fieldName => 'Text',
+});
+
+is($newProfileField2->get('fieldType'), 'ReadOnly', 'create: default fieldType is ReadOnly');
+is($newProfileField2->get('label'), q|WebGUI::International::get('webgui','WebGUI')|, 'getting raw label');
+is($newProfileField2->getLabel, 'WebGUI', 'getLabel will process safeEval calls for i18n');
+
+###########################################################
+#
+# exists
+#
+###########################################################
+
+ok( WebGUI::ProfileField->exists($session,"firstName"), "firstName field exists" );
+ok( !WebGUI::ProfileField->exists($session, time), "random field does not exist" );
+
+###########################################################
+#
+# isReservedFieldName
+#
+###########################################################
+
+ok(  WebGUI::ProfileField->isReservedFieldName('func'),   'isReservedFieldName: func');
+ok(  WebGUI::ProfileField->isReservedFieldName('op'),     '... op');
+ok(  WebGUI::ProfileField->isReservedFieldName('userId'), '... userId');
+ok(  WebGUI::ProfileField->isReservedFieldName('wg_privacySettings'), '... wg_privacySettings');
+ok( !WebGUI::ProfileField->isReservedFieldName('function'),  '... function is not');
+ok( !WebGUI::ProfileField->isReservedFieldName('operation'), '... operation is no');
+ok( !WebGUI::ProfileField->isReservedFieldName('shop'),      '... shop is not');
+
+###########################################################
+#
+# exists
+#
+###########################################################
+
+ok(  WebGUI::ProfileField->exists($session, 'email'),  'exists: email');
+ok( !WebGUI::ProfileField->exists($session, 'userId'), '... userId (not)');
 
 #----------------------------------------------------------------------------
 # Cleanup
 END {
-    $newUser->delete;
+    $newProfileField->delete;
+    $newProfileField2->delete;
 }
 
 

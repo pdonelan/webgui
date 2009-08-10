@@ -25,6 +25,8 @@ use WebGUI::SQL;
 use WebGUI::TabForm;
 use WebGUI::User;
 use WebGUI::Utility;
+use JSON;
+use XML::Simple;
 
 =head1 NAME
 
@@ -73,15 +75,19 @@ sub _submenu {
 		$ac->addSubmenuItem($session->url->page("op=editUser;uid=new"), $i18n->get(169));
 	}
 
+    $ac->setFormUrl($session->url->page('op=editUser;uid='.$userId));
+    my $formId = $ac->getSubmenuFormId;
 	if (canEdit($session)) {
 		unless ($session->form->process("op") eq "listUsers" 
 			|| $session->form->process("op") eq "deleteUser"
 			|| $userId eq "new") {
 			$ac->addSubmenuItem($session->url->page("op=editUser;uid=$userId"), $i18n->get(457));
-			$ac->addSubmenuItem($session->url->page("op=becomeUser;uid=$userId"), $i18n->get(751));
+			$ac->addSubmenuItem($session->url->page('op=becomeUser;uid='.$userId), $i18n->get(751), qq|onclick="var thisForm=document.getElementById('$formId');thisForm.op.value='becomeUser';thisForm.submit(); return false;"|);
             my $user = WebGUI::User->new($session, $userId);
 			$ac->addSubmenuItem($user->getProfileUrl(), $i18n->get('view profile'));
-			$ac->addConfirmedSubmenuItem($session->url->page("op=deleteUser;uid=$userId"), $i18n->get(750), $i18n->get(167));
+            my $confirm = $i18n->get(167);
+            $confirm =~ s/([\\\'])/\\$1/g;
+			$ac->addSubmenuItem($session->url->page('op=deleteUser;uid='.$userId), $i18n->get(750), qq|onclick="var ack = confirm('$confirm'); alert(ack); if (ack) { var thisForm=document.getElementById('$formId');thisForm.op.value='deleteUser';thisForm.submit();} return false;"|);
 			if ($session->setting->get("useKarma")) {
 				$ac->addSubmenuItem($session->url->page("op=editUserKarma;uid=$userId"), $i18n->get(555));
 			}
@@ -125,6 +131,23 @@ sub canEdit {
 
 #----------------------------------------------------------------------------
 
+=head2 canUseService ( session )
+
+Returns true if the current session is allowed to use the web service, i.e.
+is in one of the configured CIDR subnets in the config file.
+
+=cut
+
+sub canUseService {
+    my ( $session ) = @_;
+    my $subnets = $session->config->get('serviceSubnets');
+    return 1 if !$subnets || !@{$subnets};
+    return 1 if WebGUI::Utility::isInSubnet( $session->env->getIp, $subnets );
+    return 0; # Don't go away mad, just go away
+}
+
+#----------------------------------------------------------------------------
+
 =head2 canView ( session [, user] )
 
 Returns true if the user is allowed to see this module. user defaults to the
@@ -136,6 +159,27 @@ sub canView {
     my $session     = shift;
     my $user        = shift || $session->user;
     return canAdd($session, $user);
+}
+
+#-------------------------------------------------------------------
+
+=head2 createServiceResponse ( format, data ) 
+
+Create a string with the correct C<format> from the given C<data>.
+
+Possible formats are "json" and "xml".
+
+=cut
+
+sub createServiceResponse {
+    my ( $format, $data ) = @_;
+    
+    if ( lc $format eq "xml" ) {
+        return XML::Simple::XMLout($data, NoAttr => 1, RootName => "response" );
+    }
+    else {
+        return JSON->new->encode($data);
+    }
 }
 
 #-------------------------------------------------------------------
@@ -285,6 +329,246 @@ sub getUserSearchForm {
 	return $output;
 }
 
+#-------------------------------------------------------------------
+
+=head2 www_ajaxCreateUser ( )
+
+Create a user using a web service.
+
+=cut
+
+sub www_ajaxCreateUser {
+    my ( $session ) = @_;
+
+    ### Get desired output format first (for future error messages)
+    my $outputFormat    = "json";
+    my $mimeType        = "application/json";
+
+    # Allow XML
+    if ( lc $session->form->get('as') eq "xml" ) {
+        $outputFormat   = "xml";
+        $mimeType       = "application/xml";
+    }
+
+    $session->http->setMimeType( $mimeType ); 
+
+    # Verify access
+    if ( !canAdd($session) || !canUseService($session) ) {
+        # We need an automatic way to send a request for an http basic auth
+        $session->http->setStatus(401,'Unauthorized');
+        return createServiceResponse( $outputFormat, {
+            error       => "WebGUI::Error::Unauthorized",
+            message     => "",
+        } );
+    }
+
+    ### Verify data
+    # User data is <PROPERTY_NAME> in form
+    my %userParam = (
+        map { $_ => $session->form->get($_) }
+        grep { !/^auth:/ && $_ ne "op" }
+        ( $session->form->param )
+    );
+
+    # Auth data is auth:<AUTH_METHOD>:<PROPERTY_NAME> in form
+    my %authParam    = ();
+    for my $formParam ( grep { /^auth:[^:]+:.+$/ } $session->form->get ) {
+        my ( $authMethod, $property ) = $formParam =~ /^auth:([^:]+):(.+)$/;
+        $authParam{$authMethod}{$property} = $session->form->get($formParam);
+    }
+
+    # User must have a username
+    if ( !$userParam{username} ) {
+        return createServiceResponse( $outputFormat, {
+            error       => "WebGUI::Error::InvalidParam",
+            param       => "username",
+            message     => "",
+        } );
+    }
+    # User must not already exist
+    if ( $session->db->quickScalar( "SELECT * FROM users WHERE username=?", [$userParam{username}] ) ) {
+        return createServiceResponse( $outputFormat, {
+            error       => "WebGUI::Error::InvalidParam",
+            param       => "username",
+            message     => "",
+        } );
+    }
+
+    ### Create user
+    my $user    = WebGUI::User->create( $session );
+    $user->update( \%userParam );
+    for my $authMethod ( keys %authParam ) {
+        my $auth = WebGUI::Operation::Auth::getInstance($session,$authMethod,$user->getId);
+
+        # XXX Special handling for WebGUI passwords. This should be removed when 
+        # Auth is fixed in WebGUI 8
+        if ( $authMethod eq 'WebGUI' && exists $authParam{$authMethod}{identifier} ) {
+            $authParam{$authMethod}{identifier}
+                = $auth->hashPassword( $authParam{$authMethod}{identifier} );
+        }
+
+        $auth->saveParams( $user->getId, $auth->authMethod, $authParam{$authMethod} );
+    }
+
+    ### Send new user's data
+    return createServiceResponse( $outputFormat, {
+        user        => $user->get,
+    } );
+}
+
+#-------------------------------------------------------------------
+
+=head2 www_ajaxDeleteUser ( )
+
+Delete a user using a web service.
+
+=cut
+
+sub www_ajaxDeleteUser {
+    my ( $session ) = @_;
+    
+    ### Get desired output format first (for future error messages)
+    my $outputFormat    = "json";
+    my $mimeType        = "application/json";
+
+    # Allow XML
+    if ( lc $session->form->get('as') eq "xml" ) {
+        $outputFormat   = "xml";
+        $mimeType       = "application/xml";
+    }
+
+    $session->http->setMimeType( $mimeType ); 
+
+    # Verify access
+    if ( !canEdit($session) || !canUseService($session) ) {
+        # We need an automatic way to send a request for an http basic auth
+        $session->http->setStatus(401,'Unauthorized');
+        return createServiceResponse( $outputFormat, {
+            error       => "WebGUI::Error::Unauthorized",
+            message     => "",
+        } );
+    }
+
+    # Verify data
+    my $userId  = $session->form->get('userId');
+    if ( !$userId ) {
+        return createServiceResponse( $outputFormat, {
+            error       => "WebGUI::Error::InvalidParam",
+            param       => "userId",
+            message     => "",
+        } );
+    }
+    elsif ( $userId eq "1" || $userId eq "3" ) {
+        $session->http->setStatus(403,"Forbidden");
+        return createServiceResponse( $outputFormat, {
+            error       => 'WebGUI::Error::InvalidParam',
+            param       => 'userId',
+            message     => 'Cannot delete system user',
+        } );
+    }
+    elsif ( !WebGUI::User->validUserId( $session, $userId ) ) {
+        return createServiceResponse( $outputFormat, {
+            error       => 'WebGUI::Error::InvalidParam',
+            param       => 'userId',
+            message     => '',
+        } );
+    }
+
+    ### Delete user
+    my $user    = WebGUI::User->new( $session, $userId );
+    $user->delete;
+    
+    return createServiceResponse( $outputFormat, {
+        message         => 'User deleted',
+    } );
+}
+
+#-------------------------------------------------------------------
+
+=head2 www_ajaxUpdateUser ( )
+
+Update a user using a web service.
+
+=cut
+
+sub www_ajaxUpdateUser {
+    my ( $session ) = @_;
+    
+    ### Get desired output format first (for future error messages)
+    my $outputFormat    = "json";
+    my $mimeType        = "application/json";
+
+    # Allow XML
+    if ( lc $session->form->get('as') eq "xml" ) {
+        $outputFormat   = "xml";
+        $mimeType       = "application/xml";
+    }
+
+    $session->http->setMimeType( $mimeType ); 
+
+    # Verify access
+    if ( !canEdit($session) || !canUseService($session) ) {
+        # We need an automatic way to send a request for an http basic auth
+        $session->http->setStatus(401,'Unauthorized');
+        return createServiceResponse( $outputFormat, {
+            error       => "WebGUI::Error::Unauthorized",
+            message     => "",
+        } );
+    }
+
+    ### Verify data
+    # User data is <PROPERTY_NAME> in form
+    my %userParam = (
+        map { $_ => $session->form->get($_) }
+        grep { !/^auth:/ && $_ ne "op" }
+        ( $session->form->param )
+    );
+
+    # Auth data is auth:<AUTH_METHOD>:<PROPERTY_NAME> in form
+    my %authParam    = ();
+    for my $formParam ( grep { /^auth:[^:]+:.+$/ } $session->form->param ) {
+        my ( $authMethod, $property ) = $formParam =~ /^auth:([^:]+):(.+)$/;
+        $authParam{$authMethod}{$property} = $session->form->get($formParam);
+    }
+
+    # User must have a userId
+    if ( !$userParam{userId} ) {
+        return createServiceResponse( $outputFormat, {
+            error       => "WebGUI::Error::InvalidParam",
+            param       => "userId",
+            message     => "",
+        } );
+    }
+    # User must exist
+    if ( !WebGUI::User->validUserId( $session, $userParam{userId} ) ) {
+        return createServiceResponse( $outputFormat, {
+            error       => "WebGUI::Error::InvalidParam",
+            param       => "userId",
+            message     => "",
+        } );
+    }
+
+    ### Update user
+    my $user    = WebGUI::User->new( $session, delete $userParam{userId} );
+    $user->update( \%userParam );
+    for my $authMethod ( keys %authParam ) {
+        my $auth = WebGUI::Operation::Auth::getInstance($session,$authMethod,$user->getId);
+
+        # XXX Special handling for WebGUI passwords. This should be removed when 
+        # Auth is fixed in WebGUI 8
+        if ( $authMethod eq 'WebGUI' && exists $authParam{$authMethod}{identifier} ) {
+            $authParam{$authMethod}{identifier}
+                = $auth->hashPassword( $authParam{$authMethod}{identifier} );
+        }
+
+        $auth->saveParams( $user->getId, $auth->authMethod, $authParam{$authMethod} );
+    }
+
+    ### Send user's data
+    return createServiceResponse( $outputFormat, {
+        user        => $user->get,
+    } );
+}
 
 #-------------------------------------------------------------------
 
@@ -296,7 +580,7 @@ Allows an administrator to assume another user.
 
 sub www_becomeUser {
 	my $session = shift;
-	return $session->privilege->adminOnly() unless canEdit($session);
+	return $session->privilege->adminOnly() unless canEdit($session) && $session->form->validToken;
 	return undef unless WebGUI::User->validUserId($session, $session->form->process("uid"));
 	$session->var->end($session->var->get("sessionId"));
 	$session->user({userId=>$session->form->process("uid")});
@@ -315,18 +599,25 @@ after this.
 
 sub www_deleteUser {
 	my $session = shift;
-	return $session->privilege->adminOnly() unless canEdit($session);
-	my ($u);
-        if ($session->form->process("uid") eq '1' || $session->form->process("uid") eq '3') {
-	   return WebGUI::AdminConsole->new($session,"users")->render($session->privilege->vitalComponent());
-    } else {
-	   $u = WebGUI::User->new($session,$session->form->process("uid"));
-	   $u->delete;
-       return www_listUsers($session);
+	return $session->privilege->adminOnly() unless canEdit($session) && $session->form->validToken;
+    if ($session->form->process("uid") eq '1' || $session->form->process("uid") eq '3') {
+        return WebGUI::AdminConsole->new($session,"users")->render($session->privilege->vitalComponent());
+    }
+    else {
+        my $u = WebGUI::User->new($session,$session->form->process("uid"));
+        $u->delete;
+        return www_listUsers($session);
     }
 }
 
 #-------------------------------------------------------------------
+
+=head2 www_editUser ( )
+
+Provides a form for editing a user, or adding a new user.
+
+=cut
+
 sub www_editUser {
 	my $session = shift;
 	return $session->privilege->adminOnly() unless canAdd($session);
@@ -455,6 +746,14 @@ sub www_editUser {
 }
 
 #-------------------------------------------------------------------
+
+=head2 www_editUserSave ( )
+
+Process the editUser form data.  Returns adminOnly unless the user has privileges
+to add/edit users and the submitted form passes the validToken check.
+
+=cut
+
 sub www_editUserSave {
 	my $session = shift;
 	my $postedUserId = $session->form->process("uid"); #userId posted from www_editUser form
@@ -469,7 +768,7 @@ sub www_editUserSave {
 		$isSecondary = (canAdd($session) && $postedUserId eq "new");
 	}
 
-	return $session->privilege->adminOnly() unless ($isAdmin || $isSecondary);
+	return $session->privilege->adminOnly() unless ($isAdmin || $isSecondary) && $session->form->validToken;
 
 	# Check to see if 
 	# 1) the userId associated with the posted username matches the posted userId (we're editing an account)
@@ -553,6 +852,14 @@ sub www_editUserSave {
 }
 
 #-------------------------------------------------------------------
+
+=head2 www_editUserKarma ( )
+
+Provides a form for directly editing the karma for a user.  Returns adminOnly
+unless the current user can manage users.
+
+=cut
+
 sub www_editUserKarma {
 	my $session = shift;
 	return $session->privilege->adminOnly() unless canEdit($session);
@@ -589,9 +896,18 @@ sub www_editUserKarma {
 }
 
 #-------------------------------------------------------------------
+
+=head2 www_editUserKarmaSave ( )
+
+Processes the form submitted  by www_editUserKarma.  Returns adminOnly
+unless the current user can manage users and the submitted from passes
+the validToken check.
+
+=cut
+
 sub www_editUserKarmaSave {
 	my $session = shift;
-	return $session->privilege->adminOnly() unless canEdit($session);
+	return $session->privilege->adminOnly() unless canEdit($session) && $session->form->validToken;
         my ($u);
         $u = WebGUI::User->new($session,$session->form->process("uid"));
         $u->karma($session->form->process("amount"),$session->user->username." (".$session->user->userId.")",$session->form->process("description"));
@@ -630,6 +946,15 @@ sub www_formUsers {
 
 
 #-------------------------------------------------------------------
+
+=head2 www_listUsers ( )
+
+Provides a paginated list of all users, and controls for adding a new user.  If the
+current user is only allowed to add users, then it sends them directly to www_editUser.
+If the current user is not allowed to edit or create users, it returns adminOnly.
+
+=cut
+
 sub www_listUsers {
 	my $session = shift;
 
@@ -682,37 +1007,54 @@ sub www_listUsers {
         $output .= '<td class="tableData">'.$data->{email}.'</td>';
         $output .= '<td class="tableData">'.$session->datetime->epochToHuman($data->{dateCreated},"%z").'</td>';
         $output .= '<td class="tableData">'.$session->datetime->epochToHuman($data->{lastUpdated},"%z").'</td>';
-        # Total Time Recorded is computed from userLoginLog table
-        my ($totalTimeRecorded)= $session->db->quickArray("select sum(lastPageViewed-timeStamp) from userLoginLog where userId = ?", [$data->{userId}]);
-        my ($lastLoginStatus, $lastLogin, $lastPageView) 
+
+        my ( $status, $lastLogin, $lastView, $lastSession ) 
             = $session->db->quickArray(
-                "select ull.status, ull.timeStamp, us.lastPageView 
-                from userLoginLog ull, userSession us 
-                where ull.sessionId = us.sessionId and ull.lastPageViewed != ull.timeStamp and
-                ull.userId=".$session->db->quote($data->{userId})." 
-                order by ull.timeStamp DESC"
-            );
-        if ($lastLogin) {
-            $output .= '<td class="tableData">'.$session->datetime->epochToHuman($lastLogin).'</td>';
-        } 
-        else {
-            $output .= '<td class="tableData"> - </td>';
+            q{
+                select   status, timeStamp, lastPageViewed, sessionId
+                from     userLoginLog
+                where    userId = ?
+                order by timeStamp desc
+                limit    1
+            },
+            [ $data->{userId} ]
+        );
+
+        my $trueLastView = $session->db->quickScalar(
+            q{
+                select lastPageView
+                from   userSession
+                where  sessionId = ?
+            },
+            [ $lastSession ]
+        );
+
+        # format last page view, preferring session recorded view time
+        $lastView   = $trueLastView || $lastView;
+        $lastView &&= $session->datetime->epochToHuman($lastView);
+
+        $lastLogin &&= $session->datetime->epochToHuman($lastLogin);
+
+        my $totalTime = $session->db->quickScalar(
+            q{
+                select sum(lastPageViewed - timeStamp) 
+                from   userLoginLog 
+                where  userId = ?
+            }, 
+            [$data->{userId}]
+        );
+
+        if ($totalTime) {
+            my ($interval, $units) 
+                = $session->datetime->secondsToInterval($totalTime);
+            $totalTime = "$interval $units";
         }
-        if ($lastLoginStatus) {
-            $output .= '<td class="tableData">'.$lastLoginStatus.'</td>';
-        } 
-        else {
-            $output .= '<td class="tableData"> - </td>';
+
+        foreach my $cell ($lastLogin, $status, $lastView, $totalTime) {
+            $cell  ||= ' - ';
+            $output .= qq(<td class="tableData">$cell</td>);
         }
-        if ($lastPageView) {
-            $output .= '<td class="tableData"> '.$session->datetime->epochToHuman($lastPageView).'</td>';
-            my ($interval, $units) = $session->datetime->secondsToInterval($totalTimeRecorded);
-            $output .= "<td class='tableData'>$interval $units</td></tr>";
-        } 
-        else {
-            $output .= "<td class='tableData'> - </td>";
-            $output .= "<td class='tableData'> - </td></tr>";
-        }
+
         $output .= '</tr>';
 	}
     $output .= '</table>';

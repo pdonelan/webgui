@@ -17,7 +17,7 @@ use Tie::IxHash;
 use WebGUI::Test;
 use WebGUI::Session;
 
-use Test::More tests => 44; # increment this value for each test you create
+use Test::More tests => 57; # increment this value for each test you create
 use Test::Deep;
 
 my $session = WebGUI::Test->session;
@@ -125,6 +125,41 @@ is(WebGUI::Utility::round(47.6, 0), 48, 'round() - rounds up, too');
 	is_deeply([keys %hash3], [qw/a d b c e/], 'sortHashDescending');
 }
 
+#####################################################################
+#
+# scalarEquals
+#
+#####################################################################
+{
+    my %eq = (
+        0 => 0,
+        "0" => "0",
+        0.1 => 0.1,
+        "0.1" => "0.1",
+        "0 but true" => "0 but true",
+        "string" => "string",
+    );
+    while (my($a, $b) = each %eq) {
+        ok(WebGUI::Utility::scalarEquals($a, $b), "scalarEquals($a, $b) truthy");
+    }
+    
+    my %ne = (
+        0 => "0",
+        "0.0" => "0",
+        "0.1" => "0.10",
+        "0" => "0 but true",
+        "1" => "0 but true",
+        0 => "0 but true",
+        1 => "0 but true",
+    );
+    while (my($a, $b) = each %ne) {
+        ok(!WebGUI::Utility::scalarEquals($a, $b), "scalarEquals($a, $b) falsy");
+    }
+    ok(!WebGUI::Utility::scalarEquals(), "scalarEquals() falsy when no args");
+    ok(!WebGUI::Utility::scalarEquals(1), "falsy for 1 arg");
+    ok(!WebGUI::Utility::scalarEquals(1, undef, 1), "falsy for 3 args");
+}
+
 # isInSubnets
 is(WebGUI::Utility::isInSubnet('192.168.0.1', []), 0, 'isInSubnet: comparing against an empty array ref');
 is(WebGUI::Utility::isInSubnet('192.168.0.1', ['192.168.0.1/32']), 1, 'isInSubnet: comparing against an exact match');
@@ -139,6 +174,19 @@ is(WebGUI::Utility::isInSubnet('192.168.0.1', ['256.168.0.1/32']), undef, 'isInS
 is(WebGUI::Utility::isInSubnet('192.168.0.1', ['192.257.0.1/32']), undef, 'isInSubnet: ip has an out of range quad');
 is(WebGUI::Utility::isInSubnet('192.168.0.1', ['192.168.258.1/32']), undef, 'isInSubnet: ip has an out of range quad');
 is(WebGUI::Utility::isInSubnet('192.168.0.1', ['192.168.0.259/32']), undef, 'isInSubnet: ip has an out of range quad');
+
+#####################################################################
+#
+# emailRegex
+#
+#####################################################################
+
+isa_ok(WebGUI::Utility::emailRegex, 'Regexp');
+
+TODO: {
+    local $TODO = 'Things to do';
+    ok(0, 'Move email validation tests out of Form/Email into here');
+}
 
 # Local variables:
 # mode: cperl

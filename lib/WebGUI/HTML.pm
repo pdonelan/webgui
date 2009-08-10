@@ -142,7 +142,7 @@ sub filter {
 		$html =~ s/&nbsp;/ /ixsg ;
 		WebGUI::Macro::negate(\$html);
 	} elsif ($type eq "javascript") {
-		$html =~ s/\<script.*?\/script\>//ixsg;
+		$html =~ s/\<\s*script.*?\/script\s*\>//ixsg;
 		$html =~ s/(href="??)javascript\:.*?\)/$1removed/ixsg;
 		$html =~ s/onClick/removed/ixsg;
 		$html =~ s/onDblClick/removed/ixsg;
@@ -182,7 +182,8 @@ The text content to be formatted.
 
 =head3 contentType
 
-The content type to use as formatting. Valid types are 'html', 'text', 'code', and 'mixed'. Defaults to mixed. See also the contentType method in WebGUI::Form, WebGUI::HTMLForm, and WebGUI::FormProcessor.
+The content type to use as formatting. Valid types are 'text', 'code', and 'mixed'. The default contentType is 'mixed'.
+See also the contentType method in WebGUI::Form, WebGUI::HTMLForm, and WebGUI::FormProcessor.
 
 =cut
 
@@ -227,7 +228,7 @@ my $text = "";
 my $inside = {};
 
 sub html2text {
-	my $html = shift;
+	my $html = shift() . " ";
 	$text = "";
 	$inside = {};
 	my $tagHandler = sub {
@@ -434,6 +435,7 @@ sub splitTag {
 
     while (my $token = $p->get_tag($tag)) {
         my $text = $p->get_trimmed_text("/$tag");
+        utf8::upgrade($text);  ##PATCH to work around HTML::Entities and DBD::mysql
         next if $text =~ /^([[:space:]]|[[:^print:]])*$/;    # skip whitespace
         push @result, $text;          # add the text between the tags to the result array
         last if @result == $count;    # if we have a full count then quit

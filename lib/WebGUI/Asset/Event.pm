@@ -391,6 +391,28 @@ sub getDateTimeEnd {
     }
 }
 
+####################################################################
+
+=head2 getDateTimeEndNI
+
+Since the iCal standard is that ending dates are non-inclusive (they
+do not include the second at the end of the time period), this method
+provide a copy of the DateTime object that is 1 second earlier than
+the set ending time.
+
+It's just one line of DateTime code to adjust this on any object, but
+this is encapsulated here to make sure that the same amount of time
+is used EVERYWHERE.
+
+=cut
+
+sub getDateTimeEndNI {
+    my $self = shift;
+    my $dt   = $self->getDateTimeEnd;
+    $dt->subtract(seconds => 1);
+    return $dt;
+}
+
 
 
 
@@ -755,13 +777,13 @@ sub getRecurrenceDates {
     return undef unless $recur->{recurType};
     
     my %dayNames = (
-        monday      => "m",
-        tuesday     => "t",
-        wednesday   => "w",
-        thursday    => "r",
-        friday      => "f",
-        saturday    => "s",
-        sunday      => "u",
+        1 => "m",
+        2 => "t",
+        3 => "w",
+        4 => "r",
+        5 => "f",
+        6 => "s",
+        7 => "u",
     );
     
     my %weeks    = (
@@ -844,7 +866,7 @@ sub getRecurrenceDates {
                 last RECURRENCE
                     if ($recur->{endDate} && $dt_day > $dt_end);
                 
-                my $today    = $dayNames{lc $dt_day->day_name};
+                my $today    = $dayNames{ $dt_day->day_of_week };
                 
                 if (grep /$today/i, @{$recur->{dayNames}}) {
                     ### Add date
@@ -915,7 +937,7 @@ sub getRecurrenceDates {
                         # If today isn't in the month, stop looking
                         last if ($dt_day->month ne $dt->month);
                         
-                        my $today    = $dayNames{lc $dt_day->day_name};
+                        my $today    = $dayNames{ $dt_day->day_of_week };
                         
                         if (grep /$today/i, @{$recur->{dayNames}})
                         {
@@ -946,7 +968,7 @@ sub getRecurrenceDates {
                     # If today is past the endDate, try the next one
                     next if ($recur->{endDate} && $dt_day > $dt_end);
                     
-                    my $today    = $dayNames{lc $dt_day->day_name};
+                    my $today    = $dayNames{ $dt_day->day_of_week };
                     
                     if (grep /$today/i, @{$recur->{dayNames}}) {
                         ### Add date
@@ -1036,7 +1058,7 @@ sub getRecurrenceDates {
                                 # If today isn't in the month, stop looking
                                 last if ($dt_day->month ne $dt_month->month);
                                 
-                                my $today    = $dayNames{lc $dt_day->day_name};
+                                my $today    = $dayNames{ lc $dt_day->day_of_week };
                                 
                                 if (grep /$today/i, @{$recur->{dayNames}}) {
                                     ### Add date
@@ -1064,7 +1086,7 @@ sub getRecurrenceDates {
                             next
                                 if ($recur->{endDate} && $dt_day > $dt_end);
                             
-                            my $today    = $dayNames{lc $dt_day->day_name};
+                            my $today    = $dayNames{ $dt_day->day_of_week };
                             
                             if (grep /$today/i, @{$recur->{dayNames}}) {
                                 ### Add date
@@ -1277,7 +1299,8 @@ sub getTemplateVars {
     $var{ "startDateEpoch"      } = $dtStart->epoch;
     
     # End date/time
-    my $dtEnd = $self->getDateTimeEnd;
+    my $dtEnd   = $self->getDateTimeEnd;
+    my $dtEndNI = $self->getDateTimeEndNI;
     
     $var{ "endDateSecond"       } = sprintf "%02d", $dtEnd->second;
     $var{ "endDateMinute"       } = sprintf "%02d", $dtEnd->minute;
@@ -1329,11 +1352,15 @@ sub getTemplateVars {
     # Make some friendly URLs
     my $urlStartParam   = $dtStart->cloneToUserTimeZone->truncate(to => "day");
     $var{ "url"         } = $self->getUrl;
+    $var{ "urlEdit"     } = $self->getUrl("func=edit");
+    $var{ "urlPrint"    } = $self->getUrl("print=1");
+    $var{ "urlDelete"   } = $self->getUrl("func=delete");
     $var{ "urlDay"      } = $self->getParent->getUrl("type=day;start=".$urlStartParam);
     $var{ "urlWeek"     } = $self->getParent->getUrl("type=week;start=".$urlStartParam);
     $var{ "urlMonth"    } = $self->getParent->getUrl("type=month;start=".$urlStartParam);
-    $var{ "urlParent"   } = $self->getParent->getUrl;        
-    $var{ "urlSearch"   } = $self->getParent->getSearchUrl;        
+    $var{ "urlList"     } = $self->getParent->getUrl("type=list");
+    $var{ "urlParent"   } = $self->getParent->getUrl;
+    $var{ "urlSearch"   } = $self->getParent->getSearchUrl;
     
     # Related links
     $var{ relatedLinks } = $self->getRelatedLinks;    
@@ -1485,15 +1512,16 @@ sub processPropertiesFromFormPost {
     ### Verify the form was filled out correctly...
     my @errors;
     # If the start date is after the end date
+    my $i18n = WebGUI::International->new($session, 'Asset_Event');
     if ($self->get("startDate") gt $self->get("endDate")) {
-        push @errors, "The event end date must be after the event start date.";
+        push @errors, $i18n->get("The event end date must be after the event start date.");
     }
 
     # If the dates are the same and the start time is after the end time
     if ($self->get("startDate") eq $self->get("endDate")
         && $self->get("startTime") gt $self->get("endTime")
        ) {
-        push @errors, "The event end time must be after the event start time.";
+        push @errors, $i18n->get("The event end time must be after the event start time.");
     }
     
     if (@errors) {
@@ -2465,7 +2493,7 @@ ENDJS
     
     ### Show the processed template
     $session->http->sendHeader;
-    my $style = $session->style->process($self->getSeparator,$self->getParent->get("styleTemplateId"));
+    my $style = $self->getParent->processStyle($self->getSeparator);
     my ($head, $foot) = split($self->getSeparator,$style);
     $self->session->output->print($head, 1);
     $self->session->output->print($self->processTemplate($var, undef, $template));

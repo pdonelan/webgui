@@ -99,7 +99,16 @@ sub definition {
 		hoverHelp=>$i18n->get('1079 description'),
 	    filter=>'fixId',
 		namespace=>'style'
-	}
+	},
+    mobileStyleTemplateId => {
+        fieldType       => ( $session->setting->get('useMobileStyle') ? 'template' : 'hidden' ),
+        defaultValue    => 'PBtmpl0000000000000060',
+        tab             => 'display',
+        label           => $i18n->get('mobileStyleTemplateId label'),
+        hoverHelp       => $i18n->get('mobileStyleTemplateId description'),
+        filter          => 'fixId',
+        namespace       => 'style',
+    },
 	);
 	push(@{$definition}, {
 		tableName=>'wobject',
@@ -359,38 +368,23 @@ sub moveCollateralUp {
 	$self->session->db->commit;
 }
 
-#-------------------------------------------------------------------
-sub processPropertiesFromFormPost {
-	my $self = shift;
-	$self->SUPER::processPropertiesFromFormPost;
-}
-
 
 #-------------------------------------------------------------------
 
-=head2 processStyle ( output )
+=head2 processStyle ( )
 
-Returns output parsed under the current style.  Sets the Asset's extra head tags
-into the raw head tags, too.
-
-=head3 output
-
-An HTML blob to be parsed into the current style.
+Returns output parsed under the current style.  See also Asset::processStyle.
 
 =cut
 
 sub processStyle {
-	my ($self, $output) = @_;
-    my $session = $self->session;
-    my $style   = $session->style;
-    $style->setRawHeadTags($self->getExtraHeadTags);
-    if ($self->get('synopsis')) {
-        $style->setMeta({
-            name    => 'Description',
-            content => $self->get('synopsis'),
-        });
+	my ($self, $output, $options) = @_;
+    $output   = $self->SUPER::processStyle($output, $options);
+    my $style = $self->session->style;
+    if ($style->useMobileStyle) {
+        return $style->process($output,$self->get("mobileStyleTemplateId"));
     }
-	return $style->process($output,$self->get("styleTemplateId"));
+    return $style->process($output,$self->get("styleTemplateId"));
 }
 
 
@@ -557,7 +551,7 @@ sub www_view {
         });
     }
 	$self->prepareView;
-	my $style = $self->processStyle($self->getSeparator);
+	my $style = $self->processStyle($self->getSeparator, { noHeadTags => 1 });
 	my ($head, $foot) = split($self->getSeparator,$style);
 	$self->session->output->print($head, 1);
 	$self->session->output->print($self->view);

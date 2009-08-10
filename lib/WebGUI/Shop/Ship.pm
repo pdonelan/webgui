@@ -97,12 +97,18 @@ sub getOptions {
     WebGUI::Error::InvalidParam->throw(error => q{Need a cart.}) unless defined $cart and $cart->isa("WebGUI::Shop::Cart");
     my $session = $cart->session; 
     my %options = ();
-    foreach my $shipper (@{$self->getShippers()}) {
-        next unless $shipper->get('enabled');
+    SHIPPER: foreach my $shipper (@{$self->getShippers()}) {
+        next SHIPPER unless $shipper->get('enabled');
+        my $price = eval { $shipper->calculate($cart) };
+        if (my $e = WebGUI::Error->caught()) {
+            $self->session->log->warn($e->error);
+            next SHIPPER;
+        }
+        next SHIPPER unless $shipper->canUse;
         $options{$shipper->getId} = {
             label => $shipper->get("label"),
-            price => $shipper->calculate($cart),
-            };    
+            price => $price,
+        };
     }
     return \%options;
 }
@@ -146,8 +152,10 @@ sub getShippers {
     my @drivers = ();
     my $sth = $self->session->db->prepare('select shipperId from shipper');
     $sth->execute();
-    while (my $driver = $sth->hashRef()) {
-        push @drivers, $self->getShipper($driver->{shipperId});
+    SHIPPER: while (my $driver = $sth->hashRef()) {
+        my $shipper = $self->getShipper($driver->{shipperId});
+        next SHIPPER unless $shipper->canUse;
+        push @drivers, $shipper;
     }
     $sth->finish;
     return \@drivers;
