@@ -4542,10 +4542,6 @@ Users may override this setting in their profile.
 		lastUpdated => 0,
 		context => q|name for the Ad Space control|
 	},
-	'Ad Space control name' => {
-		message => q|Ad Space|,
-		lastUpdated => 0
-    },
 	'inboxMessageEncryption' => {
 		message => q|Encrypt Inbox Messages|,
 		lastUpdated => 0

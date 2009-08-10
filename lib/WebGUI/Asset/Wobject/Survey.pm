@@ -462,7 +462,7 @@ sub responseJSON {
         # See if we need to load responseJSON from the database
         if (!defined $json) {
             $json = $self->session->db->quickScalar( 'select responseJSON from Survey_response where Survey_responseId = ?', [ $responseId ] );
-            $json = $self->session->crypt->decrypt_hex($json) if($json);
+            $json = $self->session->crypt->decrypt_hex($json) if $json;
         }
 
         # Instantiate the ResponseJSON instance, and store it
@@ -1490,6 +1490,9 @@ sub getResponseDetails {
         'select isComplete, endDate, responseJSON, userId, username from Survey_response where Survey_responseId = ?',
         [$responseId]
     );
+    
+    # Pass responseJSON through Crypt layer
+    $rJSON = $self->session->crypt->decrypt_hex($rJSON) if $rJSON;
 
     my $endDateEpoch = $endDate;
     $endDate = $endDate && WebGUI::DateTime->new( $self->session, $endDate )->toUserTimeZone;
@@ -2126,7 +2129,7 @@ sub responseId {
                     Survey_responseId => 'new',
                     userId            => $userId,
                     ipAddress         => $ip,
-                    username          => $user->username,
+                    username          => scalar $user->username,
                     startDate         => scalar time,
                     endDate           => 0,
                     assetId           => $self->getId,

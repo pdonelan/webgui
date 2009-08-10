@@ -20,7 +20,7 @@ my $session = WebGUI::Test->session;
 
 #----------------------------------------------------------------------------
 # Tests
-my $tests = 25;
+my $tests = 45;
 plan tests => $tests + 1;
 
 #----------------------------------------------------------------------------
@@ -86,10 +86,10 @@ $survey->surveyEnd();
     my $ct = WebGUI::CryptTest->new( $session, 'Survey.t' );
 
     #Put json in db
-    $s->persistSurveyJSON();
+    $survey->persistSurveyJSON();
 
     #get copy of response json
-    my $rJSON = $s->responseJSON->freeze();
+    my $rJSON = $survey->responseJSON->freeze();
     
     # Response should start off unencrypted
     is($session->db->quickScalar("select responseJSON from Survey_response where Survey_responseId = ?", [$responseId]), $rJSON, 'Response starts off unencrypted');

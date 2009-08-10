@@ -568,7 +568,7 @@ sub get {
 
     if ( $field ) {
         if ( exists $self->{_user}->{$field} ) {
-            return $self->{_user}->{$field};
+            return $self->session->crypt->decrypt_hex($self->{_user}->{$field});
         }
         else {
             # XXX Should the defaults be set in new() ...
@@ -586,7 +586,7 @@ sub get {
                 ##Return a scalar, that is a string with all the defaults
                 return join ',', @{ $self->{_profile}{$field} };
             }
-            return $self->{_profile}->{$field};
+            return $self->session->crypt->decrypt_hex($self->{_profile}->{$field});
         }
     }
 
@@ -1157,7 +1157,6 @@ sub profileField {
 
     if (defined $value) {
         $self->update({ $fieldName => $value });
-        $value = $self->session->crypt->encrypt_hex($value,{table=>'userProfileData', field=>$fieldName});
     }
 
 	return $self->get($fieldName);
@@ -1380,6 +1379,7 @@ sub update {
             $self->session->errorHandler->warn("No such profile field: $key");
             next;
         }
+        $properties->{$key} = $self->session->crypt->encrypt_hex($properties->{$key},{table=>'userProfileData', field=>$key});
         push @profileFields, $db->dbh->quote_identifier( $key ) . " = ?";
         push @profileValues, $properties->{ $key };
         $self->{_profile}->{$key} = $properties->{ $key };

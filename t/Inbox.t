@@ -136,14 +136,14 @@ is(scalar @{ $inbox->getMessagesForUser($admin, '', '', '', 'sentBy='.$session->
     # Start off with inbox encryption off
     $session->crypt->setProvider(
         { table => 'inbox', field => 'message', key => 'messageId', providerId => 'None' } );
-    my $msg1 = $inbox->addMessage( { message => 'my msg1', groupId => 3, userId => 1 } );
+    my $msg1 = $inbox->addMessage( { message => 'my msg1', userId => 3 } );
     is( $session->db->quickScalar( 'select message from inbox where messageId = ?', [ $msg1->getId ] ),
         'my msg1', 'Start with encryption off' );
 
     # Set provider to SimpleTest, new messages should use this
     $session->crypt->setProvider(
         { table => 'inbox', field => 'message', key => 'messageId', providerId => 'SimpleTest' } );
-    my $msg2 = $inbox->addMessage( { message => 'my msg2', groupId => 3, userId => 1 } );
+    my $msg2 = $inbox->addMessage( { message => 'my msg2', userId => 3 } );
     like( $session->db->quickScalar( 'select message from inbox where messageId = ?', [ $msg2->getId ] ),
         qr/^CRYPT:SimpleTest:/, '..and now encryption is on' );
     is( $msg2->get('message'), 'my msg2', '..but API returns unencrypted message' );
@@ -173,6 +173,7 @@ is(scalar @{ $inbox->getMessagesForUser($admin, '', '', '', 'sentBy='.$session->
 END {
     $session->db->write('delete from inbox where messageId = ?', [$message->getId]);
     foreach my $message (@{ $inbox->getMessagesForUser($admin, 1000) } ) {
+        next unless $message;
         $message->setDeleted(3);
         $message->delete(3);
     }
