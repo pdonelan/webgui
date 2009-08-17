@@ -1,0 +1,92 @@
+package WebGUI::Crypt::Provider::None;
+use strict;
+use warnings;
+use Class::InsideOut qw{ :std };
+use Params::Validate qw(:all);
+Params::Validate::validation_options( on_fail => sub { WebGUI::Error::InvalidParam->throw( error => shift ) } );
+
+=head1 NAME
+
+WebGUI::Crypt::Provider::NewProvider
+
+=head1 DESCRIPTION
+
+Describe your provider here
+
+=head1 SYNOPSIS
+
+=head1 METHODS
+
+These methods are available from this package:
+
+=cut
+
+# InsideOut object properties
+readonly session => my %session;    # WebGUI::Session object
+public providerId => my %providerId;
+
+#-------------------------------------------------------------------
+
+=head2 new ( session, config )
+
+Constructor.
+
+=head3 session
+
+A reference to the current session.
+
+=head3 config
+
+Crypt config object
+
+=cut
+
+sub new {
+    my $class = shift;
+    my $session = shift;
+    my %opts = validate(@_, { providerId => 1, provider => 1, name => 1 });
+
+    # Check arguments..
+    if ( !defined $session || !$session->isa('WebGUI::Session') ) {
+        WebGUI::Error::InvalidParam->throw(
+            param => $session,
+            error => 'Need a session.'
+        );
+    }
+
+    # Register Class::InsideOut object..
+    my $self = register 'WebGUI::Crypt::Provider::None';
+
+    # Initialise object properties..
+    my $id = id $self;
+    $providerId{$id} = $opts{providerId};
+    $session{$id} = $session;
+    
+    return $self;
+}
+
+#-------------------------------------------------------------------
+
+=head2 encrypt ( $plaintext )
+
+Implement your encrypt method here
+
+=cut
+
+sub encrypt {
+    return $_[1];
+}
+
+#-------------------------------------------------------------------
+
+=head2 decrypt ( $ciphertext )
+
+Implement your decrypt method here
+
+=cut
+
+sub decrypt {
+    return $_[1];
+}
+
+1;

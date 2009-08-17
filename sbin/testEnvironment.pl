@@ -122,6 +122,7 @@ checkModule("File::Path",                   "2.07"       );
 checkModule("Module::Find",                 "0.06"       );
 checkModule("Class::C3",                    "0.21"       );
 checkModule("Params::Validate",             "0.91"       );
+checkModule("Crypt::CBC",                                );
 checkModule("Clone",                        "0.31"       );
 checkModule('HTML::Packer',                 "0.4"        );
 checkModule('JavaScript::Packer',           '0.02'       );

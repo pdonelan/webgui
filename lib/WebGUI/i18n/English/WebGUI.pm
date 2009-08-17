@@ -4536,6 +4536,14 @@ Users may override this setting in their profile.
 		lastUpdated => 0,
 		context => q|name for the Ad Space control|
 	},
+	'inboxMessageEncryption' => {
+		message => q|Encrypt Inbox Messages|,
+		lastUpdated => 0
+    },
+	'inboxMessageEncryption help' => {
+		message => q|Select the encryption provder to use to encrypt inbox messages. Select None if no encryption is desired|,
+		lastUpdated => 0
+    },
 
     'global head tags label' => {
         message     => 'Global Head Tags',
@@ -4635,3 +4643,4 @@ Users may override this setting in their profile.
 };
 
 1;
+

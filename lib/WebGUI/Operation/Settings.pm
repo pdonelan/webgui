@@ -304,6 +304,15 @@ sub definition {
 		defaultValue=>$setting->get("mailReturnPath")
 		});
 	push(@fields, {
+		tab=>"messaging",
+		fieldType=>"cryptProvider",
+		name=>"inboxMessageEncryption",
+		label=>$i18n->get('inboxMessageEncryption'),
+		hoverHelp=>$i18n->get('inboxMessageEncryption help'),
+		table=>'inbox',
+		field=>'message',
+        });
+	push(@fields, {
 		tab          => 'messaging',
 		fieldType    => 'text',
 		name         => 'smsGateway',
@@ -318,7 +327,7 @@ sub definition {
 		label        => $i18n->get('sms gateway subject'),
 		hoverHelp    => $i18n->get('sms gateway subject help'),
 		defaultValue => $setting->get('smsGatewaySubject'),
-		});
+        });
 	# misc
 	push(@fields, {
 		tab=>"misc",
@@ -729,6 +738,8 @@ sub www_saveSettings {
         # Delete the user cache
         WebGUI::Cache->new( $session, [ "user" ] )->deleteChunk( [ "user" ] );
     }
+    # Set Inbox Message Encryption
+    $session->crypt->setProvider({table=>'inbox', field=>'message', key=>'messageId', providerId=>$form->get('inboxMessageEncryption')});
 
     return www_editSettings($session, { errors => \@errors, message => $i18n->get("editSettings done") });
 }

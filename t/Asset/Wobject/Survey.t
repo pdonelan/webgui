@@ -11,6 +11,8 @@ use Test::Deep;
 use Data::Dumper;
 use WebGUI::Test;    # Must use this before any other WebGUI modules
 use WebGUI::Session;
+use WebGUI::CryptTest;
+WebGUI::Error->Trace(1);    # Turn on tracing of uncaught Exception::Class exceptions
 
 #----------------------------------------------------------------------------
 # Init
@@ -18,7 +20,7 @@ my $session = WebGUI::Test->session;
 
 #----------------------------------------------------------------------------
 # Tests
-my $tests = 46;
+my $tests = 49;
 plan tests => $tests + 1;
 
 #----------------------------------------------------------------------------
@@ -98,6 +100,39 @@ ok($survey->hasTimedOut, '..until we set timeLimit and change startDate');
 
 # Complete Survey
 $survey->surveyEnd();
+
+#########################################################
+# crypt #
+#########################################################
+{
+    # Create crypt test object
+    my $ct = WebGUI::CryptTest->new( $session, 'Survey.t' );
+
+    #Put json in db
+    $survey->persistSurveyJSON();
+
+    #get copy of response json
+    my $rJSON = $survey->responseJSON->freeze();
+    
+    # Response should start off unencrypted
+    is($session->db->quickScalar("select responseJSON from Survey_response where Survey_responseId = ?", [$responseId]), $rJSON, 'Response starts off unencrypted');
+    
+    # Turn on Simple provider and run Update
+    $session->crypt->setProvider({table=>'Survey_response', field=>'responseJSON', key=>'Survey_responseId', providerId => 'SimpleTest'});
+    $session->crypt->startCryptWorkflow($session);
+
+    # Response should now be encrypted
+    like($session->db->quickScalar("select responseJSON from Survey_response where Survey_responseId = ?", [$responseId]), qr/^CRYPT:SimpleTest:/, 'Response now encrypted');
+
+    # Turn off Crypt and re-run workflow
+    $session->crypt->setProvider({ table =>'Survey_response', field =>'responseJSON', key =>'Survey_responseId', providerId => 'None'});
+    $session->crypt->startCryptWorkflow($session);
+
+    # Response should be unencrypted again
+    is($session->db->quickScalar("select responseJSON from Survey_response where Survey_responseId = ?", [$responseId]), $rJSON, 'Response unencrypted again');
+}
+
+###
 
 # Uncache canTake
 delete $survey->{canTake};
@@ -195,7 +230,6 @@ cmp_deeply(from_json($surveyEnd), { type => 'forward', url => '/getting_started'
         is($survey->responseJSON->nextResponse, $index, "jumpTo($id) sets nextResponse to $index");
     }
 }
-
 # Response Revisioning
 {
     # Delete existing responses

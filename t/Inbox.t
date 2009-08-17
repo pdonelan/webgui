@@ -16,8 +16,9 @@ use WebGUI::Session;
 
 use WebGUI::Inbox;
 use WebGUI::User;
+use WebGUI::CryptTest;
 
-use Test::More tests => 15; # increment this value for each test you create
+use Test::More tests => 21; # increment this value for each test you create
 
 my $session = WebGUI::Test->session;
 
@@ -53,6 +54,7 @@ ok($messageId, 'messageId retrieved');
 ####################################
 $message = $inbox->getMessage($messageId);
 ok($message->getId == $messageId, 'getMessage returns message object');
+ok($message->{_properties}{message} eq $message_body, 'Message body still matches encrypted message in DB');
 
 #########################################################
 # get a list (arrayref) of messages for a specific user #
@@ -132,9 +134,57 @@ note $messages->[0]->getStatus;
 note $messages->[0]->isRead;
 is($inbox->getUnreadMessageCount($admin->userId), 3, '... really tracks unread messages');
 
+#########################################################
+# crypt #
+#########################################################
+{
+    # Remove existing test message
+    $session->db->write('delete from inbox where messageId = ?', [$message->getId]);
+    
+    # Create crypt test object
+    my $ct = WebGUI::CryptTest->new( $session, 'Inbox.t' );
+
+    # Start off with inbox encryption off
+    $session->crypt->setProvider(
+        { table => 'inbox', field => 'message', key => 'messageId', providerId => 'None' } );
+    my $msg1 = $inbox->addMessage( { message => 'my msg1', userId => 3 } );
+    is( $session->db->quickScalar( 'select message from inbox where messageId = ?', [ $msg1->getId ] ),
+        'my msg1', 'Start with encryption off' );
+
+    # Set provider to SimpleTest, new messages should use this
+    $session->crypt->setProvider(
+        { table => 'inbox', field => 'message', key => 'messageId', providerId => 'SimpleTest' } );
+    my $msg2 = $inbox->addMessage( { message => 'my msg2', userId => 3 } );
+    like( $session->db->quickScalar( 'select message from inbox where messageId = ?', [ $msg2->getId ] ),
+        qr/^CRYPT:SimpleTest:/, '..and now encryption is on' );
+    is( $msg2->get('message'), 'my msg2', '..but API returns unencrypted message' );
+    is( $session->db->quickScalar( 'select message from inbox where messageId = ?', [ $msg1->getId ] ),
+        'my msg1', '..and msg1 still unencrypted' );
+
+    # Set provider to SimpleTest2 and run the workflow
+    $session->crypt->setProvider(
+        { table => 'inbox', field => 'message', key => 'messageId', providerId => 'SimpleTest2' } );
+    WebGUI::Crypt->startCryptWorkflow($session);
+    is( $session->db->quickScalar(
+            'select count(*) from inbox where messageId in (?,?) and message like "CRYPT:SimpleTest2:%"',
+            [ $msg1->getId, $msg2->getId ]
+        ),
+        2,
+        '..until we re-encrypt them both via the workflow'
+    );
+    
+    # Clean up
+    $msg1->delete;
+    $msg2->delete;
+    $session->crypt->setProvider(
+        { table => 'inbox', field => 'message', key => 'messageId', 'providerId' => 'None' } );
+}
+
+
 END {
     $session->db->write('delete from inbox where messageId = ?', [$message->getId]);
     foreach my $message (@{ $inbox->getMessagesForUser($admin, 1000) } ) {
+        next unless $message;
         $message->setDeleted(3);
         $message->delete(3);
     }

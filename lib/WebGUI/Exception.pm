@@ -58,6 +58,16 @@ use Exception::Class (
         isa             => 'WebGUI::Error',
         description     => "A template has errors that prevent it from being processed.",
         },
+    'WebGUI::Error::Pluggable::LoadFailed' => {
+        isa         => 'WebGUI::Error',
+        description => 'WebGUI::Pluggable failed to load module.',
+        fields      => ['module'],
+    },
+    'WebGUI::Error::Pluggable::RunFailed' => {
+        isa         => 'WebGUI::Error',
+        description => 'WebGUI::Pluggable failed to run subroutine.',
+        fields      => [ 'module', 'subroutine', 'params' ],
+    },
 );
 
 

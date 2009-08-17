@@ -141,7 +141,7 @@ sub create {
 	$self->{_properties}{messageId} = "new";
 	$self->{_properties}{status}    = $properties->{status} || "pending";
 	$self->{_properties}{subject}   = $properties->{subject} || $i18n->get(523,'WebGUI');
-	$self->{_properties}{message}   = $properties->{message};
+	$self->{_properties}{message}   = $session->crypt->encrypt_hex($properties->{message}, {table=>'inbox', field=>'message'});
 	$self->{_properties}{dateStamp} = time();
 	$self->{_properties}{userId}    = $properties->{userId};
 	$self->{_properties}{groupId}   = $properties->{groupId};
@@ -163,6 +163,7 @@ sub create {
     }
 
 	$self->{_messageId} = $self->{_properties}{messageId} = $session->db->setRow("inbox","messageId",$self->{_properties});
+	$self->{_properties}{message}   = $properties->{message}; # undo encryption for memory/cache
     $self->{_userId   } = $self->{_properties}{userId};
     $self->{_inbox    } = $self->{_properties};
 
@@ -431,6 +432,8 @@ sub new {
     my $self       = {};
 
     my %properties  = (%{$inbox},%{$statusValues});
+    $properties{message} = $session->crypt->decrypt_hex($properties{message});
+
  
 	bless {_properties=>\%properties, _inbox=>$inbox, _session=>$session, _messageId=>$messageId, _userId=>$userId}, $class;
 }

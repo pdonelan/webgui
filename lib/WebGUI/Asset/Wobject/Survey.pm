@@ -266,6 +266,56 @@ sub definition {
 
 #-------------------------------------------------------------------
 
+=head2 getEditForm ( )
+
+Add the javascript needed for the edit form
+
+=cut
+
+sub getEditForm {
+    my ($self) = @_;
+    my $i18n = WebGUI::International->new( $self->session, 'Asset_Survey' );
+    my $tabform = $self->SUPER::getEditForm();
+    $tabform->getTab("security")->cryptProvider(
+        name      => "surveyJSONEncryptionType",
+        label     => $i18n->get('surveyJSONEncryptionType'),
+        hoverHelp => $i18n->get('surveyJSONEncryptionType help'),
+        table     => 'Survey_response',
+        field     => 'responseJSON',
+    );
+    return $tabform;
+}
+
+#-------------------------------------------------------------------
+
+=head2 processPropertiesFromFormPost
+
+For catching updates to surveyJSONEncryptionType.
+
+=cut
+
+sub processPropertiesFromFormPost {
+    my ($self) = @_;
+    $self->SUPER::processPropertiesFromFormPost;    # Updates the event
+    my $providerId = $self->session->form->get('surveyJSONEncryptionType');
+    if ( !$self->session->config->get('crypt')->{$providerId} ) {
+        WebGUI::Error::InvalidParam->throw(
+            param => $providerId,
+            error => 'Bad providerId passed in for parameters'
+        );
+    }
+    $self->session->crypt->setProvider(
+        {   table      => 'Survey_response',        # the table to be encrypted
+            field      => 'responseJSON',           # the field to be encrypted
+            key        => 'Survey_responseId',      # the primary key
+            providerId => $providerId
+        }
+    );
+
+}
+
+#-------------------------------------------------------------------
+
 =head2 surveyJSON_update ( )
 
 Convenience method that delegates to L<WebGUI::Asset::Wobject::Survey::SurveyJSON/update>
@@ -415,6 +465,7 @@ sub responseJSON {
         # If json undefined, load responseJSON from the db
         if (!defined $json) {
             $json = $self->session->db->quickScalar( 'select responseJSON from Survey_response where Survey_responseId = ?', [ $responseId ] );
+            $json = $self->session->crypt->decrypt_hex($json) if $json;
         }
         
         # Instantiate the ResponseJSON instance, and store it
@@ -1491,6 +1542,9 @@ sub getResponseDetails {
         'select isComplete, endDate, responseJSON, userId, username from Survey_response where Survey_responseId = ?',
         [$responseId]
     );
+    
+    # Pass responseJSON through Crypt layer
+    $rJSON = $self->session->crypt->decrypt_hex($rJSON) if $rJSON;
 
     my $endDateEpoch = $endDate;
     $endDate = $endDate && WebGUI::DateTime->new( $self->session, $endDate )->toUserTimeZone;
@@ -2034,9 +2088,18 @@ Turns the response object into JSON and saves it to the DB.
 
 sub persistResponseJSON {
     my $self = shift;
-    my $data = $self->responseJSON->freeze();
+
+    # Serialize/freeze the data
+    my $frozen = $self->responseJSON->freeze();
+
+    # Pass the serialized data through WebGUI::Crypt
+    $frozen
+        = $self->session->crypt->encrypt_hex( $frozen, { table => 'Survey_response', field => 'responseJSON' } );
+
+    # Persist it to the db
     $self->session->db->write( 'update Survey_response set responseJSON = ? where Survey_responseId = ?',
-        [ $data, $self->responseId( { ignoreRevisionDate => 1 } ) ] );
+        [ $frozen, $self->responseId( { ignoreRevisionDate => 1 } ) ] );
+
     return;
 }
 
@@ -2121,7 +2184,7 @@ sub responseId {
                     Survey_responseId => 'new',
                     userId            => $userId,
                     ipAddress         => $ip,
-                    username          => $user->username,
+                    username          => scalar $user->username,
                     startDate         => $startDate,
                     endDate           => 0,
                     assetId           => $self->getId,
