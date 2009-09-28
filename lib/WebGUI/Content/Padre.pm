@@ -154,6 +154,7 @@ sub serialise {
     if ($asset->isa('WebGUI::Asset::Snippet')) {
         $data->{content} = $asset->get('snippet');
         $data->{mimetype} = $asset->get('mimeType');
+        $data->{mimetype} = 'application/javascript' if $data->{mimetype} eq 'text/javascript';
     }
     return $data;
 }
