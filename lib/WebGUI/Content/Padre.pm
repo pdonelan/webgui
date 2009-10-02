@@ -131,10 +131,12 @@ sub serialise_minimal {
     return {
         assetId => $asset->getId,
         className => $asset->get('className'),
-        menuTitle => $asset->getMenuTitle,
         revisionDate => $asset->get('revisionDate'),
+        menuTitle => $asset->getMenuTitle,
+        title => $asset->getTitle,
         url  => $asset->getUrl,
         icon => $asset->getIcon,
+        name => $asset->getName,
     };
 }
 
