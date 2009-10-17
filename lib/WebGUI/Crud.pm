@@ -287,14 +287,23 @@ properties is a hash reference tied to IxHash so that it maintains its order. It
 		fieldType		=> 'guid',
 		defaultValue	=> undef,
 		isQueryKey		=> 1,
+	},
+	topSecret => {
+	    fieldType       => 'text',
+	    defaultValue    => 'openseasame',
+	    crypt           => 1,
 	}
  }
 
-The properties of each field can be any property associated with a WebGUI::Form::Control. There are two special properties as well. They are fieldType and serialize.
+The properties of each field can be any property associated with a WebGUI::Form::Control. There are three special properties as well. They are fieldType, crypt and serialize.
 
 fieldType is the WebGUI::Form::Control type that you wish to associate with this field. It is required for all fields. Examples are 'HTMLarea', 'text', 'url', 'email', and 'selectBox'.
 
 serialize tells WebGUI::Crud to automatically serialize this field in a JSON wrapper before storing it to the database, and to convert it back to it's native structure upon retrieving it from the database. This is useful if you wish to persist hash references or array references.
+
+crypt tells WebGUI::Crud to automatically encrypt/decrypt this field via L<WebGUI::Crypt>. Your subclass is responsible for calling L<crud_setCryptProviderId> to tell L<WebGUI::Crypt> what Provider to use (defaults to the 'None' provider). If you turn crypt off on a field, it
+will no longer be passed through L<WebGUI::Crypt>, so make sure that you decrypt all rows before doing this (we may later add code in
+L<crud_updateTable> to detect and do this for you automatically).
 
 isQueryKey tells WebGUI::Crud that the field should be marked as 'non null' in the table and then adds an index of the same name to the table to make searching on the field faster. B<WARNING:> Don't use this if the field is already a sequenceKey. If it's a sequence key then it will automatically be indexed.
 
@@ -335,7 +344,40 @@ sub crud_dropTable {
 	my $db = $session->db;
 	my $dbh = $db->dbh;
 	$db->write("drop table if exists ".$dbh->quote_identifier($class->crud_getTableName($session)));
+	
+	# Purge all Crypt Providers set for the table
+	my $properties = $class->crud_getProperties($session);
+	for my $field (keys %$properties) {
+        $db->write('delete from cryptFieldProviders where `table`=? and `field`=?', [ $class->crud_getTableName($session), $field ])
+            if $properties->{$field}{crypt};
+    }
 	return 1;
+}
+
+=head2 crud_getCryptProviderId( $session, $field )
+
+Returns the id of the Crypt Provider set for the specified field (see L<WebGUI::Crypt>).
+
+Takes the following mandatory arguments
+
+=head3 session
+
+=head3 field
+
+The field to look up the Crypt Provider for
+
+=cut
+
+sub crud_getCryptProviderId {
+	my ($class, $session, $field) = @_;
+	unless (defined $session && $session->isa('WebGUI::Session')) {
+        WebGUI::Error::InvalidObject->throw(expected=>'WebGUI::Session', got=>(ref $session), error=>'Need a session.');
+    }
+    unless (defined $field) {
+        WebGUI::Error::InvalidObject->throw(error=>q{Crypt Providers are per-field but you didn't tell me what field to look up});
+    }
+	
+	return $session->crypt->lookupProviderId( table => $class->crud_getTableName($session), field => $field );
 }
 
 #-------------------------------------------------------------------
@@ -397,6 +439,53 @@ sub crud_getTableName {
         WebGUI::Error::InvalidObject->throw(expected=>'WebGUI::Session', got=>(ref $session), error=>'Need a session.');
     }
 	return $class->crud_definition($session)->{tableName};
+}
+
+=head2 crud_setCryptProviderId( $session, $options )
+
+Sets the Crypt Provider for a field. You will need to call this from your subclass, possibly from a UI that lets the end-user
+choose what Crypt Provider to use.
+
+Takes the following mandatory arguments
+
+=head3 session
+
+=head3 options
+
+=head4 field
+
+The field to set the Crypt Provider for
+
+=head4 providerId
+
+The unique id of a Crypt Provider (see L<WebGUI::Crypt>)
+
+=cut
+
+sub crud_setCryptProviderId {
+	my ($class, $session, $opts) = @_;
+	unless (defined $session && $session->isa('WebGUI::Session')) {
+        WebGUI::Error::InvalidObject->throw(expected=>'WebGUI::Session', got=>(ref $session), error=>'Need a session.');
+    }
+    unless (defined $opts && ref $opts eq 'HASH') {
+        WebGUI::Error::InvalidObject->throw(expected=>'HASHREF', got=>(ref $opts), error=>'Need a hashref.');
+    }
+	
+	if (!$opts->{field}) {
+	    WebGUI::Error::InvalidObject->throw(error=>"Crypt Providers are per-field but you didn't tell me what field to set provider for");
+	}
+	
+	if (!$opts->{providerId}) {
+	    WebGUI::Error::InvalidObject->throw(error=>"You didn't tell me what Crypt Providers to set for field: $opts->{field}");
+	}
+	
+	$session->log->debug("Updaing Crypt Provider for $opts->{field} to $opts->{providerId}");
+	$session->crypt->setProvider({
+        table => $class->crud_getTableName($session), 
+        key => $class->crud_getTableKey($session),
+        field => $opts->{field},
+        providerId => $opts->{providerId} || 'None',
+    });
 }
 
 #-------------------------------------------------------------------
@@ -464,6 +553,10 @@ sub crud_updateTable {
         if ($properties->{$property}{serialize}) {
             $defaultValue = JSON->new->canonical->encode($defaultValue);
         }
+        # Encrypt the field, after serialization has (optionally) happened
+        if ($properties->{$property}{crypt}) {
+            $defaultValue = $session->crypt->encrypt_hex($defaultValue, { table => $tableName, field => $property });
+        }
 		my $notNullClause = ($isKey || $defaultValue ne "") ? "not null" : "";
 		my $defaultClause = '';
         if ($fieldType !~ /(?:text|blob)$/i) {
@@ -497,6 +590,7 @@ sub crud_updateTable {
 		if ($isKey && !$tableFields{$property}{key}) {
 			$db->write("alter table $tableName add index ".$dbh->quote_identifier($property)." (".$dbh->quote_identifier($property).")");
 		}
+        
 		delete $tableFields{$property};
 	}
 
@@ -830,9 +924,13 @@ sub new {
         WebGUI::Error::ObjectNotFound->throw(error=>'no such '.$tableKey, id=>$id);
     }
 
-	# deserialize data
+	# decrypt/deserialize data
 	my $properties = $class->crud_getProperties($session);
 	foreach my $name (keys %{$properties}) {
+	    # Decrypt first
+	    if ($properties->{$name}{crypt}) {
+			$data->{$name} = $session->crypt->decrypt_hex($data->{$name});
+		}
 		if ($properties->{$name}{serialize} && $data->{$name} ne "") {
 			$data->{$name} = JSON->new->canonical->decode($data->{$name});
 		}
@@ -972,6 +1070,12 @@ sub update {
 		}
         else {
             $dbData->{$property} = $data->{$property};
+        }
+        
+        # encrypt last
+        if ( $properties->{$property}{crypt} ) {
+            $dbData->{$property} = $session->crypt->encrypt_hex( $dbData->{$property},
+                { table => $self->crud_getTableName($session), field => $property } );
         }
 	}
 
